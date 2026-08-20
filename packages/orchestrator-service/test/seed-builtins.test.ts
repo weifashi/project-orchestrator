@@ -95,6 +95,22 @@ describe('built-in configuration', () => {
     expect(() => service.publishWorkflow({
       workflowTemplateId: template.id, envelope: memoryBypass,
     })).toThrow(/SAFETY_BASELINE/);
+
+    const featureTemplate = repository.listWorkflowTemplates().find((candidate) => candidate.slug === 'feature-development')!;
+    const feature = readTemplate('feature-development');
+    feature.data.version = 2;
+    feature.data.edges = feature.data.edges.filter((edge) => !(edge.from === 'implementation' && edge.to === 'testing'));
+    feature.data.edges.push({ from: 'research', to: 'testing', edge_type: 'requires' });
+    expect(() => service.publishWorkflow({ workflowTemplateId: featureTemplate.id, envelope: feature }))
+      .toThrow(/SAFETY_BASELINE/);
+
+    const bugTemplate = repository.listWorkflowTemplates().find((candidate) => candidate.slug === 'bug-fix')!;
+    const bug = readTemplate('bug-fix');
+    bug.data.version = 2;
+    bug.data.edges = bug.data.edges.filter((edge) => !(edge.from === 'security' && edge.to === 'operations'));
+    bug.data.edges.push({ from: 'research', to: 'operations', edge_type: 'requires' });
+    expect(() => service.publishWorkflow({ workflowTemplateId: bugTemplate.id, envelope: bug }))
+      .toThrow(/SAFETY_BASELINE/);
     db.close();
   });
 });

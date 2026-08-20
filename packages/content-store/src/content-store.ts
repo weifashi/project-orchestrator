@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  chmodSync,
   closeSync,
+  constants,
   existsSync,
+  fchmodSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -81,8 +83,7 @@ export class ContentStore {
     const sha256 = createHash('sha256').update(data).digest('hex');
     const existing = this.findByHash(sha256);
     if (existing !== undefined) {
-      this.verify(existing.id);
-      chmodSync(this.safePath(existing.storageKey), 0o444);
+      this.readVerifiedObject(existing, true);
       return existing;
     }
 
@@ -99,7 +100,7 @@ export class ContentStore {
       try {
         writeFileSync(descriptor, data);
         fsyncSync(descriptor);
-        chmodSync(temporaryPath, 0o444);
+        fchmodSync(descriptor, 0o444);
       } finally {
         closeSync(descriptor);
       }
@@ -107,9 +108,7 @@ export class ContentStore {
       if (existsSync(finalPath)) {
         rmSync(temporaryPath);
         temporaryExists = false;
-        this.assertRegularFile(finalPath);
-        this.assertHash(finalPath, sha256);
-        chmodSync(finalPath, 0o444);
+        this.readVerifiedPath(finalPath, sha256, data.byteLength, true);
       } else {
         renameSync(temporaryPath, finalPath);
         temporaryExists = false;
@@ -145,19 +144,40 @@ export class ContentStore {
 
   read(objectId: string): Uint8Array {
     const object = this.get(objectId);
-    const path = this.safePath(object.storageKey);
-    this.verify(objectId);
-    return new Uint8Array(readFileSync(path));
+    return new Uint8Array(this.readVerifiedObject(object, false));
   }
 
   verify(objectId: string): void {
     const object = this.get(objectId);
+    this.readVerifiedObject(object, false);
+  }
+
+  private readVerifiedObject(object: ContentObject, enforceReadOnly: boolean): Buffer {
     const path = this.safePath(object.storageKey);
     this.assertDirectoryChain(dirname(path));
-    this.assertRegularFile(path);
-    this.assertHash(path, object.sha256);
-    const size = lstatSync(path).size;
-    if (size !== object.sizeBytes) throw new Error(`CONTENT_SIZE_MISMATCH: ${objectId}`);
+    return this.readVerifiedPath(path, object.sha256, object.sizeBytes, enforceReadOnly);
+  }
+
+  private readVerifiedPath(path: string, expectedHash: string, expectedSize: number, enforceReadOnly: boolean): Buffer {
+    let descriptor: number;
+    try {
+      descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('SYMLINK_CONTENT_REJECTED');
+      throw error;
+    }
+    try {
+      const stats = fstatSync(descriptor);
+      if (!stats.isFile()) throw new Error('CONTENT_NOT_REGULAR_FILE');
+      const bytes = readFileSync(descriptor);
+      const actualHash = createHash('sha256').update(bytes).digest('hex');
+      if (actualHash !== expectedHash) throw new Error('CONTENT_HASH_MISMATCH');
+      if (stats.size !== expectedSize || bytes.byteLength !== expectedSize) throw new Error('CONTENT_SIZE_MISMATCH');
+      if (enforceReadOnly) fchmodSync(descriptor, 0o444);
+      return bytes;
+    } finally {
+      closeSync(descriptor);
+    }
   }
 
   private get(objectId: string): ContentObject {
@@ -197,14 +217,4 @@ export class ContentStore {
     }
   }
 
-  private assertRegularFile(path: string): void {
-    const stats = lstatSync(path);
-    if (stats.isSymbolicLink()) throw new Error('SYMLINK_CONTENT_REJECTED');
-    if (!stats.isFile()) throw new Error('CONTENT_NOT_REGULAR_FILE');
-  }
-
-  private assertHash(path: string, expectedHash: string): void {
-    const actualHash = createHash('sha256').update(readFileSync(path)).digest('hex');
-    if (actualHash !== expectedHash) throw new Error('CONTENT_HASH_MISMATCH');
-  }
 }

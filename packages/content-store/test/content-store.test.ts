@@ -84,36 +84,60 @@ describe('content store', () => {
     const readyPaths = [join(directory, 'writer-1.ready'), join(directory, 'writer-2.ready')];
     const goPath = join(directory, 'writers.go');
     const workerPath = new URL('./content-writer.mjs', import.meta.url).pathname;
-    const runWriter = (readyPath: string): Promise<string> => new Promise((resolve, reject) => {
+    type WriterResult = { output: string; error?: never } | { output?: never; error: Error };
+    const states: Array<{ error?: Error }> = [];
+    const children: Array<ReturnType<typeof spawn>> = [];
+    const runWriter = (readyPath: string): Promise<WriterResult> => new Promise((resolve) => {
+      const state: { error?: Error } = {};
+      states.push(state);
       const child = spawn(process.execPath, [workerPath, databasePath, root, readyPath, goPath], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      children.push(child);
       let stdout = '';
       let stderr = '';
+      let settled = false;
+      const finish = (result: WriterResult): void => {
+        if (settled) return;
+        settled = true;
+        if (result.error !== undefined) state.error = result.error;
+        resolve(result);
+      };
       child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
       child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-      child.on('error', reject);
-      child.on('exit', (code) => {
-        if (code === 0) resolve(stdout.trim());
-        else reject(new Error(`writer exited ${String(code)}: ${stderr}`));
+      child.on('error', (error) => { finish({ error }); });
+      child.on('close', (code) => {
+        if (code === 0) finish({ output: stdout.trim() });
+        else finish({ error: new Error(`writer exited ${String(code)}: ${stderr}`) });
       });
     });
     const writers = readyPaths.map((readyPath) => runWriter(readyPath));
-    await new Promise<void>((resolve, reject) => {
-      const deadline = Date.now() + 10_000;
-      const waitForReady = (): void => {
-        if (readyPaths.every((path) => existsSync(path))) {
-          resolve();
-        } else if (Date.now() >= deadline) {
-          reject(new Error('writers did not become ready'));
-        } else {
-          setTimeout(waitForReady, 10);
-        }
-      };
-      waitForReady();
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 10_000;
+        const waitForReady = (): void => {
+          const failure = states.find((state) => state.error !== undefined)?.error;
+          if (failure !== undefined) {
+            reject(failure);
+          } else if (readyPaths.every((path) => existsSync(path))) {
+            resolve();
+          } else if (Date.now() >= deadline) {
+            reject(new Error('writers did not become ready'));
+          } else {
+            setTimeout(waitForReady, 10);
+          }
+        };
+        waitForReady();
+      });
+    } catch (error) {
+      for (const child of children) child.kill();
+      throw error;
+    }
     writeFileSync(goPath, 'go');
-    const objectIds = await Promise.all(writers);
+    const results = await Promise.all(writers);
+    const failure = results.find((result) => result.error !== undefined)?.error;
+    if (failure !== undefined) throw failure;
+    const objectIds = results.map((result) => result.output as string);
     expect(new Set(objectIds).size).toBe(1);
     expect(db.prepare('SELECT count(*) AS count FROM content_objects').get()).toEqual({ count: 1 });
     const objectId = objectIds[0] as string;

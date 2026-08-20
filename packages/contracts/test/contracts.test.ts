@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ContractValidator,
+  CompleteStageRequestEnvelopeSchema,
   CreateRunRequestEnvelopeSchema,
   MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS,
   StageOutputEnvelopeSchema,
@@ -90,5 +91,22 @@ describe('contract envelopes', () => {
       expect(serialized, name).not.toContain('lease_token');
       expect(serialized, name).not.toContain('lease_epoch');
     }
+  });
+
+  it('rejects a failed output submitted through complete-stage', () => {
+    expect(() => validator.check(CompleteStageRequestEnvelopeSchema, {
+      schema_id: 'project-orchestrator/complete-stage-request',
+      schema_version: 1,
+      data: {
+        request_id: 'request-1', run_id: 'run-1', stage_run_id: 'stage-1',
+        output: {
+          schema_id: 'project-orchestrator/stage-output', schema_version: 1,
+          data: {
+            status: 'failed', summary: 'failed', artifact_object_ids: [], evidence_object_ids: [],
+            risks: [], next_stage_notes: [],
+          },
+        },
+      },
+    })).toThrow(/const/);
   });
 });

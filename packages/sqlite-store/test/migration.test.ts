@@ -46,6 +46,8 @@ describe('foundation migration', () => {
     expect(() => db.prepare('DELETE FROM content_objects WHERE id=?').run('object-1')).toThrow(/FOREIGN KEY/);
     expect(() => db.prepare('INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES(?,?,?,?,?,?,?,?)')
       .run('version-2', 'workflow-1', 1, '', 1, 'object-1', 'same', now)).toThrow(/UNIQUE/);
+    expect(() => db.prepare('INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES(?,?,?,?,?,?,?,?)')
+      .run('unsupported-baseline', 'workflow-1', 2, '', 999, 'object-1', 'same', now)).toThrow(/CHECK/);
     expect(() => db.prepare('DELETE FROM workflow_versions WHERE id=?').run('version-1')).toThrow(/IMMUTABLE_VERSION/);
 
     for (const id of ['role-1', 'role-2']) {

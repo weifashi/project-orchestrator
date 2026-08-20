@@ -38,7 +38,7 @@ CREATE TABLE workflow_versions (
   workflow_template_id TEXT NOT NULL REFERENCES workflow_templates(id) ON DELETE RESTRICT,
   version_number INTEGER NOT NULL CHECK(version_number > 0),
   description TEXT NOT NULL,
-  safety_baseline_version INTEGER NOT NULL CHECK(safety_baseline_version > 0),
+  safety_baseline_version INTEGER NOT NULL CHECK(safety_baseline_version = 1),
   content_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
   content_hash TEXT NOT NULL,
   published_at TEXT NOT NULL,

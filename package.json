@@ -9,6 +9,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r build && pnpm -r typecheck",
     "lint": "eslint .",
+    "pretest": "pnpm -r build",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration"
   },

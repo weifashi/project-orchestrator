@@ -1,20 +1,33 @@
 import { Type, type Static } from '@sinclair/typebox';
 import { Envelope } from './envelope.js';
 
-export const StageOutputDataSchema = Type.Object({
-  status: Type.Union([Type.Literal('succeeded'), Type.Literal('failed')]),
+const StageOutputProperties = {
   summary: Type.String(),
   artifact_object_ids: Type.Array(Type.String()),
   evidence_object_ids: Type.Array(Type.String()),
   changed_file_manifest_object_id: Type.Optional(Type.String()),
   risks: Type.Array(Type.String()),
   next_stage_notes: Type.Array(Type.String()),
+};
+
+export const StageOutputDataSchema = Type.Object({
+  status: Type.Union([Type.Literal('succeeded'), Type.Literal('failed')]),
+  ...StageOutputProperties,
 }, { additionalProperties: false });
 
 export const StageOutputEnvelopeSchema = Envelope(
   'project-orchestrator/stage-output',
   1,
   StageOutputDataSchema,
+);
+
+export const SucceededStageOutputEnvelopeSchema = Envelope(
+  'project-orchestrator/stage-output',
+  1,
+  Type.Object({
+    status: Type.Literal('succeeded'),
+    ...StageOutputProperties,
+  }, { additionalProperties: false }),
 );
 
 const RequestIdentitySchema = {
@@ -50,7 +63,7 @@ export const BeginStageRequestEnvelopeSchema = Envelope('project-orchestrator/be
 
 export const CompleteStageRequestEnvelopeSchema = Envelope('project-orchestrator/complete-stage-request', 1, Type.Object({
   ...StageRequestIdentitySchema,
-  output: StageOutputEnvelopeSchema,
+  output: SucceededStageOutputEnvelopeSchema,
 }, { additionalProperties: false }));
 
 export const FailStageRequestEnvelopeSchema = Envelope('project-orchestrator/fail-stage-request', 1, Type.Object({

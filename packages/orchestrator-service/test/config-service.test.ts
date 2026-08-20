@@ -69,6 +69,13 @@ describe('configuration service', () => {
     db.close();
   });
 
+  it('rejects an unsupported safety baseline version', () => {
+    const { db, repository, content } = fixture();
+    expect(() => new ConfigService(repository, content, { safetyBaselineVersion: 999 }))
+      .toThrow(/SAFETY_BASELINE_INCOMPATIBLE/);
+    db.close();
+  });
+
   it('enforces the built-in safety baseline on a first publication', () => {
     const { db, repository, service } = fixture();
     repository.createRole({ id: 'implementation-role', slug: 'implementation', name: 'Implementation' });
