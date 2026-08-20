@@ -3,7 +3,7 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$root"
 pnpm release
-release="$root/release/project-orchestrator-0.1.1"
+release="$root/release/project-orchestrator-0.1.2"
 for path in \
   app/control/dist/main.js app/mcp/dist/main.js app/operations/dist/main.js \
   bin/project-orchestratord bin/project-orchestrator-mcp bin/project-orchestrator-operations \
@@ -16,7 +16,7 @@ test -z "$(find "$release" -name '*.map' -o -name '.env' -o -name '.git')"
 (cd "$release" && sha256sum -c manifest.sha256 >/dev/null)
 tmp_home=$(mktemp -d)
 HOME="$tmp_home" PROJECT_ORCHESTRATOR_SKIP_PLUGINS=1 bash "$release/install.sh" --both --no-start --prefix "$tmp_home/.local" >/dev/null
-test "$(HOME="$tmp_home" "$tmp_home/.local/bin/project-orchestrator" version)" = 0.1.1
+test "$(HOME="$tmp_home" "$tmp_home/.local/bin/project-orchestrator" version)" = 0.1.2
 test -s "$tmp_home/.project-orchestrator/orchestrator.sqlite"
 set -a
 source "$tmp_home/.project-orchestrator/runtime/service.env"

@@ -5,9 +5,9 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-release="$tmp/project-orchestrator-0.1.0"
+release="$tmp/project-orchestrator-0.1.1"
 mkdir -p "$release/bin" "$release/app/control/dist" "$release/installer/linux" "$release/marketplaces/codex" "$release/marketplaces/claude"
-printf '0.1.0\n' > "$release/VERSION"
+printf '0.1.1\n' > "$release/VERSION"
 printf '#!/bin/sh\nexit 0\n' > "$release/bin/project-orchestrator"
 chmod +x "$release/bin/project-orchestrator"
 cp "$root/scripts/install.sh" "$release/install.sh"
@@ -64,6 +64,42 @@ grep -q '^codex plugin marketplace list --json$' "$client_log"
 grep -q '^codex plugin add project-orchestrator@project-orchestrator-local$' "$client_log"
 grep -q '^claude plugin marketplace list --json$' "$client_log"
 grep -q '^claude plugin install project-orchestrator@project-orchestrator-local --scope user$' "$client_log"
+
+# An upgraded release must replace a Codex plugin and marketplace that point at an
+# immutable old release, while Claude refreshes its cached plugin by version.
+upgrade_log="$tmp/upgrade-client-calls.log"
+upgrade_bin="$tmp/upgrade-client-bin"
+mkdir -p "$upgrade_bin"
+for client in codex claude; do
+  cat > "$upgrade_bin/$client" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' '$client' "\$*" >> '$upgrade_log'
+case "\$*" in
+  'plugin marketplace list --json')
+    if [[ '$client' = codex ]]; then
+      printf '{"marketplaces":[{"name":"project-orchestrator-local","root":"/old/project-orchestrator-0.1.0/marketplaces/codex"}]}\n'
+    else
+      printf '[]\n'
+    fi ;;
+  'plugin list --json')
+    if [[ '$client' = codex ]]; then
+      printf '{"installed":[{"pluginId":"project-orchestrator@project-orchestrator-local","version":"0.1.0"}]}\n'
+    else
+      printf '[{"id":"project-orchestrator@project-orchestrator-local","version":"0.1.0"}]\n'
+    fi ;;
+esac
+EOF
+  chmod +x "$upgrade_bin/$client"
+done
+upgrade_home="$tmp/upgrade-home"
+mkdir -p "$upgrade_home"
+HOME="$upgrade_home" PATH="$upgrade_bin:$PATH" PROJECT_ORCHESTRATOR_SKIP_MANIFEST=1 \
+  bash "$release/install.sh" --both --no-start --prefix "$upgrade_home/.local" >/dev/null
+grep -q '^codex plugin remove project-orchestrator@project-orchestrator-local$' "$upgrade_log"
+grep -q '^codex plugin marketplace remove project-orchestrator-local$' "$upgrade_log"
+grep -q '^codex plugin marketplace add ' "$upgrade_log"
+grep -q '^codex plugin add project-orchestrator@project-orchestrator-local$' "$upgrade_log"
+grep -q '^claude plugin update project-orchestrator@project-orchestrator-local --scope user$' "$upgrade_log"
 
 if HOME="$home" bash "$release/install.sh" --prefix relative --no-start 2>/dev/null; then
   echo 'relative prefix unexpectedly accepted' >&2

@@ -23,6 +23,28 @@ json_has_installed_plugin() {
     } catch { process.exit(1); }
   ' "$2" <<<"$1"
 }
+json_installed_plugin_version() {
+  node -e '
+    const fs = require("node:fs");
+    try {
+      const value = JSON.parse(fs.readFileSync(0, "utf8"));
+      const rows = Array.isArray(value) ? value : value.installed;
+      const row = Array.isArray(rows) ? rows.find((candidate) => candidate && (candidate.pluginId === process.argv[1] || candidate.id === process.argv[1])) : undefined;
+      if (typeof row?.version === "string") process.stdout.write(row.version);
+    } catch { }
+  ' "$2" <<<"$1"
+}
+json_marketplace_root() {
+  node -e '
+    const fs = require("node:fs");
+    try {
+      const value = JSON.parse(fs.readFileSync(0, "utf8"));
+      const rows = Array.isArray(value) ? value : value.marketplaces;
+      const row = Array.isArray(rows) ? rows.find((candidate) => candidate && candidate.name === process.argv[1]) : undefined;
+      if (typeof row?.root === "string") process.stdout.write(row.root);
+    } catch { }
+  ' "$2" <<<"$1"
+}
 
 clients=both
 start=1
@@ -124,13 +146,22 @@ render_unit "$current/installer/linux/project-orchestrator-operations.service" "
 render_unit "$current/installer/linux/project-orchestratord.service" "$user_units/project-orchestratord.service"
 
 if [[ ${PROJECT_ORCHESTRATOR_SKIP_PLUGINS:-0} != 1 ]]; then
+  plugin_id=project-orchestrator@project-orchestrator-local
   if [[ $clients = codex || $clients = both ]]; then
     command -v codex >/dev/null || die 'Codex CLI is required for --codex/--both'
     codex_markets=$(codex plugin marketplace list --json 2>/dev/null || printf '[]')
-    json_has_marketplace "$codex_markets" project-orchestrator-local || codex plugin marketplace add "$current/marketplaces/codex" >/dev/null
     codex_plugins=$(codex plugin list --json 2>/dev/null || printf '[]')
-    json_has_installed_plugin "$codex_plugins" project-orchestrator@project-orchestrator-local \
-      || codex plugin add project-orchestrator@project-orchestrator-local >/dev/null
+    codex_market_root=$(json_marketplace_root "$codex_markets" project-orchestrator-local)
+    codex_plugin_version=$(json_installed_plugin_version "$codex_plugins" "$plugin_id")
+    expected_market_root=$(readlink -f "$current/marketplaces/codex")
+    if [[ -n $codex_market_root && $codex_market_root != "$expected_market_root" ]]; then
+      [[ -z $codex_plugin_version ]] || codex plugin remove "$plugin_id" >/dev/null
+      codex plugin marketplace remove project-orchestrator-local >/dev/null
+      codex_markets='[]'
+      codex_plugin_version=''
+    fi
+    json_has_marketplace "$codex_markets" project-orchestrator-local || codex plugin marketplace add "$current/marketplaces/codex" >/dev/null
+    [[ $codex_plugin_version = "$version" ]] || codex plugin add "$plugin_id" >/dev/null
   fi
   if [[ $clients = claude || $clients = both ]]; then
     command -v claude >/dev/null || die 'Claude CLI is required for --claude/--both'
@@ -138,8 +169,12 @@ if [[ ${PROJECT_ORCHESTRATOR_SKIP_PLUGINS:-0} != 1 ]]; then
     json_has_marketplace "$claude_markets" project-orchestrator-local \
       || claude plugin marketplace add "$current/marketplaces/claude" --scope user >/dev/null
     claude_plugins=$(claude plugin list --json 2>/dev/null || printf '[]')
-    json_has_installed_plugin "$claude_plugins" project-orchestrator@project-orchestrator-local \
-      || claude plugin install project-orchestrator@project-orchestrator-local --scope user >/dev/null
+    claude_plugin_version=$(json_installed_plugin_version "$claude_plugins" "$plugin_id")
+    if [[ -z $claude_plugin_version ]]; then
+      claude plugin install "$plugin_id" --scope user >/dev/null
+    elif [[ $claude_plugin_version != "$version" ]]; then
+      claude plugin update "$plugin_id" --scope user >/dev/null
+    fi
   fi
 fi
 
