@@ -1,0 +1,20 @@
+{
+  "name": "@project-orchestrator/mcp-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "project-orchestrator-mcp": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "@project-orchestrator/adapter-core": "workspace:*",
+    "@project-orchestrator/contracts": "workspace:*"
+  },
+  "exports": "./dist/server.js",
+  "types": "./dist/server.d.ts"
+}

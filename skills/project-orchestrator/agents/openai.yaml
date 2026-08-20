@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Orchestrator"
+  short_description: "Run secure, versioned multi-role project workflows"
+  default_prompt: "Use $project-orchestrator to start this project with the recommended published workflow."

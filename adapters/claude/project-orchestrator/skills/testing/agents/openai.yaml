@@ -1,0 +1,4 @@
+interface:
+  display_name: "Testing"
+  short_description: "Run checks independently and preserve raw evidence"
+  default_prompt: "Use $testing to complete this role contract and return structured output to the root session."

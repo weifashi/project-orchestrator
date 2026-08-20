@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "project-orchestrator": {
+      "command": "project-orchestrator-mcp",
+      "args": ["--client", "claude"]
+    }
+  }
+}

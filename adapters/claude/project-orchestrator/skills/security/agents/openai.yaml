@@ -1,0 +1,4 @@
+interface:
+  display_name: "Security"
+  short_description: "Assess secrets, permissions, inputs, and dependencies"
+  default_prompt: "Use $security to complete this role contract and return structured output to the root session."

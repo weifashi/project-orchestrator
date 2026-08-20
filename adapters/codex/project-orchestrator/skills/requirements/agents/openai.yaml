@@ -1,0 +1,4 @@
+interface:
+  display_name: "Requirements"
+  short_description: "Define testable requirements and acceptance criteria"
+  default_prompt: "Use $requirements to complete this role contract and return structured output to the root session."

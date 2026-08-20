@@ -1,0 +1,4 @@
+interface:
+  display_name: "Memory and Documentation"
+  short_description: "Archive deduplicated, redacted, sourced knowledge"
+  default_prompt: "Use $memory-docs to complete this role contract and return structured output to the root session."

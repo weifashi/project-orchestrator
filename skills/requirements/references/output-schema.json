@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "data"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "project-orchestrator/requirements-output"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "summary",
+        "artifact_object_ids",
+        "evidence_object_ids",
+        "risks",
+        "next_stage_notes",
+        "deliverables"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "artifact_object_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "evidence_object_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "changed_file_manifest_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_stage_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deliverables": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "requirement_confirmation_sheet",
+            "acceptance_criteria",
+            "open_questions"
+          ],
+          "properties": {
+            "requirement_confirmation_sheet": {
+              "type": "string",
+              "minLength": 1
+            },
+            "acceptance_criteria": {
+              "type": "string",
+              "minLength": 1
+            },
+            "open_questions": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}
