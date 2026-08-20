@@ -1,3 +1,50 @@
-import {mkdtempSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';import {describe,expect,it} from 'vitest';import {ContentStore} from '@project-orchestrator/content-store';import {LeaseService,RunService} from '@project-orchestrator/orchestrator-service';import {migrate,openDatabase} from '@project-orchestrator/sqlite-store';
-const stage=(key:string)=>({key,role_version_id:'role-v1',optional:false,mandatory_gate:false,failure_policy:'retry_then_fail' as const,max_attempts:2,requires_confirmation:false});
-describe('run lifecycle',()=>{it('freezes snapshots, exposes parallel frontier, fences writes, and finalizes from server state',()=>{const dir=mkdtempSync(join(tmpdir(),'run-int-'));try{const db=openDatabase(join(dir,'db'));migrate(db);const content=new ContentStore(join(dir,'objects'),db),now=new Date().toISOString(),empty=content.putCanonicalJson({}),workflow={schema_id:'project-orchestrator/workflow-version' as const,schema_version:1 as const,data:{slug:'workflow',version:1,stages:[stage('root'),stage('architecture'),stage('ui')],edges:[{from:'root',to:'architecture',edge_type:'on_success' as const},{from:'root',to:'ui',edge_type:'on_success' as const}],iteration_groups:[]}};const workflowObject=content.putCanonicalJson(workflow);db.prepare("INSERT INTO client_installations(id,client_type,adapter_version,capability_object_id,credential_hash,status,last_seen_at) VALUES('install','codex','1',?,'h','active',?)").run(empty.id,now);db.prepare("INSERT INTO projects(id,canonical_path,display_name,repository_fingerprint,created_at,last_seen_at) VALUES('project',?,'P','fp',?,?)").run(dir,now,now);db.prepare("INSERT INTO roles(id,slug,name,status,created_at,updated_at) VALUES('role','role','Role','active',?,?)").run(now,now);db.prepare("INSERT INTO role_versions(id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status) VALUES('role-v1','role',1,?,'h','{}','{}','[]','[]','[]','{}',?,'published')").run(empty.id,now);db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('wt','workflow','Workflow','feature','active',?,?)").run(now,now);db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','wt',1,'',1,?,'h',?)").run(workflowObject.id,now);const principal={installationId:'install',sessionId:'root',rootSessionId:'root',clientType:'codex' as const},leases=new LeaseService(db,1,60_000),service=new RunService(db,content,leases);const created=service.createRun({requestId:'create',projectId:'project',workflowVersionId:'wv',objective:'ship',runInput:{x:1},principal,snapshot:{workflow,roleBundle:{version:1},ruleBundle:{rule:1},safetyBaseline:{v:1},adapterCapabilities:{parallel:true},workspace:{repositoryHead:'head',stagedPatch:'',unstagedPatch:'',untrackedManifest:[],submoduleManifest:[]}}});const replay=service.createRun({requestId:'create',projectId:'project',workflowVersionId:'wv',objective:'ship',runInput:{x:1},principal,snapshot:{workflow,roleBundle:{version:1},ruleBundle:{rule:1},safetyBaseline:{v:1},adapterCapabilities:{parallel:true},workspace:{repositoryHead:'head',stagedPatch:'',unstagedPatch:'',untrackedManifest:[],submoduleManifest:[]}}});expect(replay).toEqual(created);const lease=service.claimRun({requestId:'claim',runId:created.runId,mode:'start',principal}),proof={runId:created.runId,leaseEpoch:lease.leaseEpoch,leaseToken:lease.leaseToken};const root=db.prepare("SELECT id FROM stage_runs WHERE run_id=? AND stage_key='root'").get(created.runId) as {id:string};const attempt=service.beginStage({requestId:'begin-root',proof,stageRunId:root.id,principal});service.completeStage({requestId:'complete-root',proof,stageRunId:root.id,principal,output:{status:'succeeded'},changedFiles:{}});const ready=db.prepare("SELECT stage_key FROM stage_runs WHERE run_id=? AND status='ready' ORDER BY stage_key").all(created.runId) as Array<{stage_key:string}>;expect(ready.map((r)=>r.stage_key)).toEqual(['architecture','ui']);expect(attempt.attemptId).toBeTruthy();expect(()=>service.appendAgentNote({requestId:'stale',proof:{...proof,leaseEpoch:0},principal,note:'x'})).toThrow('STALE_LEASE');expect(db.prepare('SELECT count(*) AS count FROM events WHERE run_id=?').get(created.runId)).toMatchObject({count:expect.any(Number)});db.close();}finally{rmSync(dir,{recursive:true,force:true});}});});
+import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { ContentStore } from '@project-orchestrator/content-store';
+import { LeaseService, RunService } from '@project-orchestrator/orchestrator-service';
+import { migrate, openDatabase } from '@project-orchestrator/sqlite-store';
+const stage = (key: string) => ({ key, role_version_id: 'role-v1', optional: false, mandatory_gate: false, failure_policy: 'retry_then_fail' as const, max_attempts: 2, requires_confirmation: false });
+const output = { schema_id: 'project-orchestrator/stage-output' as const, schema_version: 1 as const, data: { status: 'succeeded' as const, summary: 'done', artifact_object_ids: [], evidence_object_ids: [], risks: [], next_stage_notes: [] } };
+describe('run lifecycle', () => {
+  it('freezes trusted snapshots, exposes parallel frontier, fences writes, and does not replay lease secrets', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'run-int-'));
+    try {
+      const db = openDatabase(join(dir, 'db')); migrate(db);
+      const content = new ContentStore(join(dir, 'objects'), db), now = new Date().toISOString(), empty = content.putCanonicalJson({});
+      const workflow = { schema_id: 'project-orchestrator/workflow-version' as const, schema_version: 1 as const, data: { slug: 'workflow', version: 1, stages: [stage('root'), stage('architecture'), stage('ui')], edges: [{ from: 'root', to: 'architecture', edge_type: 'on_success' as const }, { from: 'root', to: 'ui', edge_type: 'on_success' as const }], iteration_groups: [] } };
+      const workflowObject = content.putCanonicalJson(workflow);
+      db.prepare("INSERT INTO client_installations(id,client_type,adapter_version,capability_object_id,credential_hash,status,last_seen_at) VALUES('install','codex','1',?,?,'active',?)").run(empty.id, createHash('sha256').update('credential').digest('hex'), now);
+      db.prepare("INSERT INTO projects(id,canonical_path,display_name,repository_fingerprint,created_at,last_seen_at) VALUES('project',?,'P','fp',?,?)").run(dir, now, now);
+      db.prepare("INSERT INTO roles(id,slug,name,status,created_at,updated_at) VALUES('role','role','Role','active',?,?)").run(now, now);
+      db.prepare("INSERT INTO role_versions(id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status) VALUES('role-v1','role',1,?,'h','{}','{}','[]','[]','[]','{}',?,'published')").run(empty.id, now);
+      db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('wt','workflow','Workflow','feature','active',?,?)").run(now, now);
+      db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','wt',1,'',1,?,'h',?)").run(workflowObject.id, now);
+      const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const };
+      const workspace = { repositoryHead: 'head', stagedPatch: '', unstagedPatch: '', untrackedManifest: [], submoduleManifest: [] };
+      const leases = new LeaseService(db, 1, 60_000), service = new RunService(db, content, leases);
+      const request = { requestId: 'create', projectId: 'project', workflowVersionId: 'wv', objective: 'ship', runInput: { x: 1 }, principal, workspace };
+      const created = service.createRun(request);
+      expect(service.createRun(request)).toEqual(created);
+      const lease = service.claimRun({ requestId: 'claim', runId: created.runId, mode: 'start', expectedStatus: 'created', expectedLeaseEpoch: 0, principal });
+      expect(() => service.claimRun({ requestId: 'claim', runId: created.runId, mode: 'start', expectedStatus: 'created', expectedLeaseEpoch: 0, principal })).toThrow('ALREADY_CLAIMED');
+      const proof = { runId: created.runId, leaseEpoch: lease.leaseEpoch, leaseToken: lease.leaseToken };
+      const root = db.prepare("SELECT id FROM stage_runs WHERE run_id=? AND stage_key='root'").get(created.runId) as { id: string };
+      const attempt = service.beginStage({ requestId: 'begin-root', proof, stageRunId: root.id, principal });
+      service.completeStage({ requestId: 'complete-root', proof, stageRunId: root.id, principal, output, changedFiles: {}, workspace });
+      const ready = db.prepare("SELECT stage_key FROM stage_runs WHERE run_id=? AND status='ready' ORDER BY stage_key").all(created.runId) as Array<{ stage_key: string }>;
+      expect(ready.map((row) => row.stage_key)).toEqual(['architecture', 'ui']);
+      const architecture = db.prepare("SELECT id FROM stage_runs WHERE run_id=? AND stage_key='architecture'").get(created.runId) as { id: string };
+      service.beginStage({ requestId: 'begin-architecture', proof, stageRunId: architecture.id, principal });
+      service.failStage({ requestId: 'fail-architecture', proof, stageRunId: architecture.id, principal, errorCode: 'REVIEW', summary: 'retry locally' });
+      expect(db.prepare('SELECT status FROM runs WHERE id=?').get(created.runId)).toEqual({ status: 'running' });
+      service.retryStage({ requestId: 'retry-architecture', proof, stageRunId: architecture.id, principal });
+      expect(attempt.attemptId).toBeTruthy();
+      expect(() => service.appendAgentNote({ requestId: 'stale', proof: { ...proof, leaseEpoch: 0 }, principal, note: 'x' })).toThrow('STALE_LEASE');
+      expect(db.prepare("SELECT response_envelope FROM idempotency_requests WHERE operation='claim_run'").get()).toEqual({ response_envelope: JSON.stringify({ claimed: true, leaseEpoch: 1 }) });
+      db.close();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});

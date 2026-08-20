@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "pretest": "pnpm -r build",
     "test": "vitest run --project unit",
+    "pretest:integration": "pnpm -r build",
     "test:integration": "vitest run --project integration"
   },
   "devDependencies": {

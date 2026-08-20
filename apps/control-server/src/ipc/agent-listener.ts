@@ -1,4 +1,121 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { chmodSync,rmSync } from 'node:fs';import { createServer,type Server } from 'node:net';import type { InternalIpcRequest,InternalPrincipal } from '@project-orchestrator/contracts';import { secureEqual } from './principal.js';
-export type AgentDispatcher=(request:InternalIpcRequest,principal:InternalPrincipal)=>Promise<unknown>|unknown;
-export function startAgentListener(input:{socketPath:string;adapterCredential:string;maxFrameBytes?:number;dispatch:AgentDispatcher}):Promise<Server>{rmSync(input.socketPath,{force:true});const server=createServer((socket)=>{let buffer='',bound:InternalPrincipal|undefined,authenticated=false;socket.setEncoding('utf8');socket.on('data',(chunk)=>{buffer+=chunk;if(Buffer.byteLength(buffer)>(input.maxFrameBytes??256*1024)){socket.destroy(new Error('FRAME_TOO_LARGE'));return;}let newline:number;while((newline=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,newline);buffer=buffer.slice(newline+1);try{const parsed=JSON.parse(line) as any;if(!authenticated){if(typeof parsed.credential!=='string'||!secureEqual(parsed.credential,input.adapterCredential)||!parsed.principal)throw new Error('UNAUTHENTICATED');bound=parsed.principal as InternalPrincipal;if(bound.session_id!==bound.root_session_id)throw new Error('POLICY_VIOLATION: root session required');authenticated=true;socket.write('{"authenticated":true}\n');continue;}const request=parsed as InternalIpcRequest;if(!bound||request.principal.installation_id!==bound.installation_id||request.principal.root_session_id!==bound.root_session_id||request.principal.session_id!==bound.session_id)throw new Error('POLICY_VIOLATION: principal mismatch');void Promise.resolve(input.dispatch(request,bound)).then((result)=>socket.write(`${JSON.stringify({ok:true,result})}\n`),(error:unknown)=>socket.write(`${JSON.stringify({ok:false,error:error instanceof Error?error.message:'error'})}\n`));}catch(error){socket.write(`${JSON.stringify({ok:false,error:error instanceof Error?error.message:'invalid'})}\n`);}}});});return new Promise((resolve,reject)=>server.once('error',reject).listen(input.socketPath,()=>{chmodSync(input.socketPath,0o600);resolve(server);}));}
+import { chmodSync, rmSync } from 'node:fs';
+import { createServer, type Server, type Socket } from 'node:net';
+import { ContractValidator } from '@project-orchestrator/contracts';
+import {
+  AgentHandshakeSchema,
+  InternalConfirmationDecisionSchema,
+  InternalIpcRequestSchema,
+  type AgentHandshake,
+  type InternalConfirmationDecision,
+  type InternalIpcRequest,
+  type InternalPrincipal,
+} from '@project-orchestrator/contracts/internal-ipc';
+import type { CredentialAuthenticator } from './principal.js';
+
+export type AgentDispatcher = (
+  request: InternalIpcRequest,
+  principal: InternalPrincipal,
+) => Promise<unknown> | unknown;
+export type ConfirmationDispatcher = (
+  request: InternalConfirmationDecision,
+  principal: InternalPrincipal,
+) => Promise<unknown> | unknown;
+
+type ListenerInput = {
+  socketPath: string;
+  authenticate: CredentialAuthenticator;
+  maxFrameBytes?: number;
+  dispatch: AgentDispatcher;
+  submitConfirmation: ConfirmationDispatcher;
+};
+
+type ConnectionState = { socket: Socket; pending: () => Promise<void> };
+const connectionStates = new WeakMap<Server, Set<ConnectionState>>();
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'invalid';
+}
+
+export function startAgentListener(input: ListenerInput): Promise<Server> {
+  rmSync(input.socketPath, { force: true });
+  const validator = new ContractValidator();
+  const connections = new Set<ConnectionState>();
+  const server = createServer((socket) => {
+    let buffer = '';
+    let bound: InternalPrincipal | undefined;
+    let channel: AgentHandshake['channel'] | undefined;
+    let processing = Promise.resolve();
+    const state: ConnectionState = { socket, pending: () => processing };
+    connections.add(state);
+    socket.setEncoding('utf8');
+
+    const write = (value: unknown): void => {
+      if (!socket.destroyed) socket.write(`${JSON.stringify(value)}\n`);
+    };
+    const processLine = async (line: string): Promise<void> => {
+      try {
+        const parsed = JSON.parse(line) as unknown;
+        if (bound === undefined) {
+          const handshake = validator.check(AgentHandshakeSchema, parsed);
+          const installation = input.authenticate(handshake.credential);
+          bound = Object.freeze({
+            installation_id: installation.installationId,
+            root_session_id: installation.rootSessionId,
+            session_id: installation.sessionId,
+          });
+          channel = handshake.channel;
+          write({ authenticated: true });
+          return;
+        }
+        if (channel === 'agent') {
+          const request = validator.check(InternalIpcRequestSchema, parsed);
+          write({ ok: true, result: await input.dispatch(request, bound) });
+          return;
+        }
+        const request = validator.check(InternalConfirmationDecisionSchema, parsed);
+        write({ ok: true, result: await input.submitConfirmation(request, bound) });
+      } catch (error) {
+        write({ ok: false, error: errorMessage(error) });
+      }
+    };
+
+    socket.on('data', (chunk) => {
+      buffer += chunk;
+      const maxFrameBytes = input.maxFrameBytes ?? 256 * 1024;
+      let newline: number;
+      while ((newline = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (Buffer.byteLength(line) > maxFrameBytes) {
+          socket.destroy(new Error('FRAME_TOO_LARGE'));
+          return;
+        }
+        processing = processing.then(() => processLine(line));
+      }
+      if (Buffer.byteLength(buffer) > maxFrameBytes) socket.destroy(new Error('FRAME_TOO_LARGE'));
+    });
+    socket.on('error', () => undefined);
+    socket.once('close', () => connections.delete(state));
+  });
+  connectionStates.set(server, connections);
+  return new Promise((resolve, reject) => {
+    server.once('error', reject).listen(input.socketPath, () => {
+      chmodSync(input.socketPath, 0o600);
+      resolve(server);
+    });
+  });
+}
+
+export async function closeAgentListener(server: Server): Promise<void> {
+  const connections = connectionStates.get(server) ?? new Set<ConnectionState>();
+  const closed = new Promise<void>((resolve, reject) => {
+    server.close((error) => error === undefined ? resolve() : reject(error));
+  });
+  for (const { socket } of connections) socket.pause();
+  await Promise.all([...connections].map(async ({ socket, pending }) => {
+    await pending();
+    socket.end();
+  }));
+  await closed;
+  connectionStates.delete(server);
+}

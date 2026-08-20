@@ -8,6 +8,7 @@ import {
   type ConditionExpression,
 } from '@project-orchestrator/contracts';
 import { canonicalJson, type ContentStore } from '@project-orchestrator/content-store';
+import { validateWorkflowGraph } from '@project-orchestrator/workflow-engine';
 import {
   type PublishedWorkflowRecord,
   type SqliteConfigRepository,
@@ -142,6 +143,7 @@ export class ConfigService {
   }
 
   private validateWorkflowPolicy(templateSlug: string, envelope: WorkflowVersionEnvelope): void {
+    validateWorkflowGraph(envelope.data);
     const stages = envelope.data.stages;
     const stageByKey = new Map<string, (typeof stages)[number]>();
     const roleSlugByStage = new Map<string, string>();
@@ -155,99 +157,7 @@ export class ConfigService {
       roleSlugByStage.set(stage.key, role.slug);
     }
 
-    const adjacency = new Map<string, string[]>();
-    for (const key of stageByKey.keys()) adjacency.set(key, []);
-    for (const edge of envelope.data.edges) {
-      const from = stageByKey.get(edge.from);
-      const to = stageByKey.get(edge.to);
-      if (from === undefined || to === undefined) throw new Error('POLICY_VIOLATION: edge references missing stage');
-      if (to.mandatory_gate && edge.condition !== undefined) {
-        throw new Error(`POLICY_VIOLATION: mandatory gate ${to.key} has a conditional dependency`);
-      }
-      adjacency.get(edge.from)?.push(edge.to);
-    }
-    this.assertAcyclic(adjacency);
-    this.assertReachable(adjacency);
-
-    const groupKeys = new Set<string>();
-    for (const group of envelope.data.iteration_groups) {
-      if (groupKeys.has(group.key)) throw new Error(`POLICY_VIOLATION: duplicate iteration group ${group.key}`);
-      groupKeys.add(group.key);
-      if (group.max_iterations > 3) throw new Error('POLICY_VIOLATION: max_iterations exceeds 3');
-      const entry = stageByKey.get(group.entry_stage_key);
-      if (entry?.iteration_group_key !== group.key) throw new Error('POLICY_VIOLATION: iteration entry is missing');
-      for (const gateKey of group.gate_stage_keys) {
-        const gate = stageByKey.get(gateKey);
-        if (gate === undefined || !gate.mandatory_gate || gate.optional || gate.condition !== undefined
-          || gate.iteration_group_key !== group.key) {
-          throw new Error(`POLICY_VIOLATION: mandatory gate ${gateKey} is missing or bypassable`);
-        }
-        if (!this.isReachable(group.entry_stage_key, gateKey, adjacency)) {
-          throw new Error(`POLICY_VIOLATION: mandatory gate ${gateKey} is not downstream of its iteration entry`);
-        }
-      }
-    }
-
-    for (const stage of stages) {
-      if (stage.iteration_group_key !== undefined && !groupKeys.has(stage.iteration_group_key)) {
-        throw new Error(`POLICY_VIOLATION: stage ${stage.key} references a missing iteration group`);
-      }
-      if (stage.mandatory_gate && stage.iteration_group_key === undefined) {
-        throw new Error(`POLICY_VIOLATION: mandatory gate ${stage.key} has no iteration group`);
-      }
-      if (stage.iteration_group_key !== undefined) {
-        const group = envelope.data.iteration_groups.find((candidate) => candidate.key === stage.iteration_group_key);
-        if (group !== undefined && stage.key !== group.entry_stage_key && !group.gate_stage_keys.includes(stage.key)) {
-          throw new Error(`POLICY_VIOLATION: stage ${stage.key} is not declared by iteration group ${group.key}`);
-        }
-      }
-    }
-
     this.assertBuiltInBaseline(templateSlug, envelope, stageByKey, roleSlugByStage);
-  }
-
-  private assertAcyclic(adjacency: ReadonlyMap<string, readonly string[]>): void {
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
-    const visit = (key: string): void => {
-      if (visiting.has(key)) throw new Error('POLICY_VIOLATION: workflow dependency cycle');
-      if (visited.has(key)) return;
-      visiting.add(key);
-      for (const next of adjacency.get(key) ?? []) visit(next);
-      visiting.delete(key);
-      visited.add(key);
-    };
-    for (const key of adjacency.keys()) visit(key);
-  }
-
-  private assertReachable(adjacency: ReadonlyMap<string, readonly string[]>): void {
-    const indegree = new Map([...adjacency.keys()].map((key) => [key, 0]));
-    for (const destinations of adjacency.values()) {
-      for (const destination of destinations) indegree.set(destination, (indegree.get(destination) ?? 0) + 1);
-    }
-    const roots = [...indegree].filter(([, degree]) => degree === 0).map(([key]) => key);
-    if (roots.length !== 1) throw new Error('POLICY_VIOLATION: workflow DAG must have exactly one reachable root');
-    const reachable = new Set<string>();
-    const visit = (key: string): void => {
-      if (reachable.has(key)) return;
-      reachable.add(key);
-      for (const destination of adjacency.get(key) ?? []) visit(destination);
-    };
-    visit(roots[0] as string);
-    if (reachable.size !== adjacency.size) throw new Error('POLICY_VIOLATION: workflow contains unreachable stages');
-  }
-
-  private isReachable(from: string, to: string, adjacency: ReadonlyMap<string, readonly string[]>): boolean {
-    const pending = [from];
-    const visited = new Set<string>();
-    while (pending.length > 0) {
-      const key = pending.pop() as string;
-      if (key === to) return true;
-      if (visited.has(key)) continue;
-      visited.add(key);
-      pending.push(...(adjacency.get(key) ?? []));
-    }
-    return false;
   }
 
   private assertBuiltInBaseline(
@@ -302,10 +212,10 @@ export class ConfigService {
 
     if (templateSlug === 'feature-development') {
       for (const key of ['research', 'implementation', 'code-review', 'testing', 'memory-docs']) requireStage(key);
-      requireStage('architecture', { optional: true, condition: anyTrue(['run_input.changes.api', 'run_input.changes.schema', 'run_input.changes.module_boundary']) });
-      requireStage('ui-design', { optional: true, condition: anyTrue(['run_input.user_visible_change']) });
-      requireStage('security', { optional: true, condition: anyTrue(['run_input.changes.permissions', 'run_input.changes.secrets', 'run_input.changes.external_input', 'run_input.changes.dependencies']) });
-      requireStage('operations', { optional: true, confirmation: true, condition: anyTrue(['run_input.changes.runtime', 'run_input.changes.migration', 'run_input.changes.release_artifact']) });
+      requireStage('architecture', { optional: true, condition: anyTrue(['/input/changes/api', '/input/changes/schema', '/input/changes/module_boundary']) });
+      requireStage('ui-design', { optional: true, condition: anyTrue(['/input/user_visible_change']) });
+      requireStage('security', { optional: true, condition: anyTrue(['/input/changes/permissions', '/input/changes/secrets', '/input/changes/external_input', '/input/changes/dependencies']) });
+      requireStage('operations', { optional: true, confirmation: true, condition: anyTrue(['/input/changes/runtime', '/input/changes/migration', '/input/changes/release_artifact']) });
       for (const gate of ['code-review', 'testing', 'security']) {
         requireDependency('implementation', gate, 'requires');
         requireDependency(gate, 'operations', 'requires');
@@ -316,10 +226,10 @@ export class ConfigService {
 
     if (templateSlug === 'bug-fix') {
       for (const key of ['research', 'implementation', 'code-review', 'testing', 'memory-docs']) requireStage(key);
-      requireStage('architecture', { optional: true, condition: anyTrue(['run_input.root_cause_changes_module_boundary']) });
-      requireStage('ui-design', { optional: true, condition: anyTrue(['run_input.user_visible_behavior_change']) });
-      requireStage('security', { optional: true, condition: anyTrue(['run_input.security_sensitive']) });
-      requireStage('operations', { optional: true, confirmation: true, condition: anyTrue(['run_input.requires_release', 'run_input.requires_migration']) });
+      requireStage('architecture', { optional: true, condition: anyTrue(['/input/root_cause_changes_module_boundary']) });
+      requireStage('ui-design', { optional: true, condition: anyTrue(['/input/user_visible_behavior_change']) });
+      requireStage('security', { optional: true, condition: anyTrue(['/input/security_sensitive']) });
+      requireStage('operations', { optional: true, confirmation: true, condition: anyTrue(['/input/requires_release', '/input/requires_migration']) });
       for (const gate of ['code-review', 'testing', 'security']) {
         requireDependency('implementation', gate, 'requires');
         requireDependency(gate, 'operations', 'requires');

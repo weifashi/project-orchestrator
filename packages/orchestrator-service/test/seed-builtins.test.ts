@@ -42,14 +42,14 @@ describe('built-in configuration', () => {
       op: 'any', items: paths.map((path) => ({ op: 'eq', path, value: true })),
     });
     const expectedConditions: Record<string, Record<string, unknown>> = {
-      'feature-development:architecture': condition(['run_input.changes.api', 'run_input.changes.schema', 'run_input.changes.module_boundary']),
-      'feature-development:ui-design': condition(['run_input.user_visible_change']),
-      'feature-development:security': condition(['run_input.changes.permissions', 'run_input.changes.secrets', 'run_input.changes.external_input', 'run_input.changes.dependencies']),
-      'feature-development:operations': condition(['run_input.changes.runtime', 'run_input.changes.migration', 'run_input.changes.release_artifact']),
-      'bug-fix:architecture': condition(['run_input.root_cause_changes_module_boundary']),
-      'bug-fix:ui-design': condition(['run_input.user_visible_behavior_change']),
-      'bug-fix:security': condition(['run_input.security_sensitive']),
-      'bug-fix:operations': condition(['run_input.requires_release', 'run_input.requires_migration']),
+      'feature-development:architecture': condition(['/input/changes/api', '/input/changes/schema', '/input/changes/module_boundary']),
+      'feature-development:ui-design': condition(['/input/user_visible_change']),
+      'feature-development:security': condition(['/input/changes/permissions', '/input/changes/secrets', '/input/changes/external_input', '/input/changes/dependencies']),
+      'feature-development:operations': condition(['/input/changes/runtime', '/input/changes/migration', '/input/changes/release_artifact']),
+      'bug-fix:architecture': condition(['/input/root_cause_changes_module_boundary']),
+      'bug-fix:ui-design': condition(['/input/user_visible_behavior_change']),
+      'bug-fix:security': condition(['/input/security_sensitive']),
+      'bug-fix:operations': condition(['/input/requires_release', '/input/requires_migration']),
     };
     for (const slug of ['feature-development', 'bug-fix']) {
       const workflow = JSON.parse(Buffer.from(content.read(

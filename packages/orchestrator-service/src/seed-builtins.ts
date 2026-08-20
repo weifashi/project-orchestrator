@@ -108,17 +108,17 @@ function featureDevelopment(roles: ReadonlyMap<string, string>): TemplateDefinit
     stages: [
       stage('research', role('research')),
       stage('architecture', role('architecture'), { optional: true, condition: condition([
-        'run_input.changes.api', 'run_input.changes.schema', 'run_input.changes.module_boundary',
+        '/input/changes/api', '/input/changes/schema', '/input/changes/module_boundary',
       ]) }),
-      stage('ui-design', role('ui-design'), { optional: true, condition: condition(['run_input.user_visible_change']) }),
+      stage('ui-design', role('ui-design'), { optional: true, condition: condition(['/input/user_visible_change']) }),
       stage('implementation', role('implementation')),
       stage('code-review', role('code-review')),
       stage('testing', role('testing')),
       stage('security', role('security'), { optional: true, condition: condition([
-        'run_input.changes.permissions', 'run_input.changes.secrets', 'run_input.changes.external_input', 'run_input.changes.dependencies',
+        '/input/changes/permissions', '/input/changes/secrets', '/input/changes/external_input', '/input/changes/dependencies',
       ]) }),
       stage('operations', role('operations'), { optional: true, requires_confirmation: true, condition: condition([
-        'run_input.changes.runtime', 'run_input.changes.migration', 'run_input.changes.release_artifact',
+        '/input/changes/runtime', '/input/changes/migration', '/input/changes/release_artifact',
       ]) }),
       stage('memory-docs', role('memory-docs')),
     ],
@@ -146,14 +146,14 @@ function bugFix(roles: ReadonlyMap<string, string>): TemplateDefinition {
     slug: 'bug-fix', name: 'Bug Fix', taskType: 'bugfix',
     stages: [
       stage('research', role('research')),
-      stage('architecture', role('architecture'), { optional: true, condition: condition(['run_input.root_cause_changes_module_boundary']) }),
-      stage('ui-design', role('ui-design'), { optional: true, condition: condition(['run_input.user_visible_behavior_change']) }),
+      stage('architecture', role('architecture'), { optional: true, condition: condition(['/input/root_cause_changes_module_boundary']) }),
+      stage('ui-design', role('ui-design'), { optional: true, condition: condition(['/input/user_visible_behavior_change']) }),
       stage('implementation', role('implementation')),
       stage('code-review', role('code-review')),
       stage('testing', role('testing')),
-      stage('security', role('security'), { optional: true, condition: condition(['run_input.security_sensitive']) }),
+      stage('security', role('security'), { optional: true, condition: condition(['/input/security_sensitive']) }),
       stage('operations', role('operations'), { optional: true, requires_confirmation: true, condition: condition([
-        'run_input.requires_release', 'run_input.requires_migration',
+        '/input/requires_release', '/input/requires_migration',
       ]) }),
       stage('memory-docs', role('memory-docs')),
     ],

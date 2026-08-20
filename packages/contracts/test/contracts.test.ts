@@ -3,10 +3,13 @@ import {
   ContractValidator,
   CompleteStageRequestEnvelopeSchema,
   CreateRunRequestEnvelopeSchema,
+  AgentToolNames,
+  MODEL_VISIBLE_TOOL_SCHEMAS,
   MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS,
   StageOutputEnvelopeSchema,
   WorkflowVersionEnvelopeSchema,
 } from '../src/index.js';
+import { INTERNAL_TOOL_REQUEST_SCHEMAS } from '../src/internal-ipc.js';
 
 const validator = new ContractValidator();
 
@@ -90,6 +93,16 @@ describe('contract envelopes', () => {
       const serialized = JSON.stringify(schema);
       expect(serialized, name).not.toContain('lease_token');
       expect(serialized, name).not.toContain('lease_epoch');
+    }
+  });
+
+  it('defines a closed, independent visible and internal schema for every agent tool', () => {
+    expect(Object.keys(MODEL_VISIBLE_TOOL_SCHEMAS)).toEqual(AgentToolNames);
+    expect(Object.keys(INTERNAL_TOOL_REQUEST_SCHEMAS)).toEqual(AgentToolNames);
+    for (const tool of AgentToolNames) {
+      const visible = JSON.stringify(MODEL_VISIBLE_TOOL_SCHEMAS[tool]);
+      expect(visible, tool).not.toMatch(/lease_(token|epoch)|recovery_credential|principal|credential_hash|source_principal|sequence_number|decision/);
+      expect(JSON.stringify(INTERNAL_TOOL_REQUEST_SCHEMAS[tool]), tool).toContain(`"const":"${tool}"`);
     }
   });
 

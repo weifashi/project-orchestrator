@@ -1,6 +1,7 @@
 import { defineWorkspace } from 'vitest/config';
 
 const aliases = {
+  '@project-orchestrator/contracts/internal-ipc': new URL('./packages/contracts/src/internal-ipc.ts', import.meta.url).pathname,
   '@project-orchestrator/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
   '@project-orchestrator/sqlite-store': new URL('./packages/sqlite-store/src/index.ts', import.meta.url).pathname,
   '@project-orchestrator/content-store': new URL('./packages/content-store/src/index.ts', import.meta.url).pathname,
