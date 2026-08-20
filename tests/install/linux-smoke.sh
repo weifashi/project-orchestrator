@@ -29,6 +29,9 @@ test "$(stat -c %a "$home/.project-orchestrator/runtime/web-token")" = 600
 grep -q '127.0.0.1' "$home/.project-orchestrator/runtime/service.env"
 grep -q 'UMask=0077' "$home/.config/systemd/user/project-orchestratord.service"
 grep -q 'project-orchestrator-operations.service' "$home/.config/systemd/user/project-orchestratord.service"
+service_line=$(grep -n '^\[Service\]$' "$home/.config/systemd/user/project-orchestratord.service" | cut -d: -f1)
+limit_line=$(grep -n '^StartLimitIntervalSec=' "$home/.config/systemd/user/project-orchestratord.service" | cut -d: -f1)
+((limit_line < service_line))
 test "$(find "$home/.local/share/project-orchestrator/releases" -mindepth 1 -maxdepth 1 -type d | wc -l)" = 1
 
 # The installer must keep the caller's PATH while registering clients. In Coder,
