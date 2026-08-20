@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review every changed line and business-rule impact"
+  default_prompt: "Use $code-review to complete this role contract and return structured output to the root session."

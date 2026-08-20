@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture"
+  short_description: "Produce ADRs, data/API design, and implementation plan"
+  default_prompt: "Use $architecture to complete this role contract and return structured output to the root session."

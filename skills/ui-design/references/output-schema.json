@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "data"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "project-orchestrator/ui-design-output"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "summary",
+        "artifact_object_ids",
+        "evidence_object_ids",
+        "risks",
+        "next_stage_notes",
+        "deliverables"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "artifact_object_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "evidence_object_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "changed_file_manifest_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "next_stage_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deliverables": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "html_prototype",
+            "state_matrix",
+            "operation_result_map"
+          ],
+          "properties": {
+            "html_prototype": {
+              "type": "string",
+              "minLength": 1
+            },
+            "state_matrix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "operation_result_map": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

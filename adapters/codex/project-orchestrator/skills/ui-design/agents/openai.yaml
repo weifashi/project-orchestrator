@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI Design"
+  short_description: "Design HTML prototypes, states, actions, and results"
+  default_prompt: "Use $ui-design to complete this role contract and return structured output to the root session."

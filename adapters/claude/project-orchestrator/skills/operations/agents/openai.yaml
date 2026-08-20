@@ -1,0 +1,4 @@
+interface:
+  display_name: "Operations"
+  short_description: "Run managed builds, releases, smoke tests, and rollback"
+  default_prompt: "Use $operations to complete this role contract and return structured output to the root session."

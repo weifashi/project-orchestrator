@@ -24,7 +24,12 @@ export default defineWorkspace([
     resolve: { alias: aliases },
     test: {
       name: 'integration',
-      include: ['tests/integration/**/*.test.ts', 'packages/*/test/**/*.integration.test.ts'],
+      include: [
+        'tests/integration/**/*.test.ts',
+        'tests/contract/**/*.test.ts',
+        'tests/skills/**/*.test.ts',
+        'packages/*/test/**/*.integration.test.ts',
+      ],
       testTimeout: 30_000,
     },
   },

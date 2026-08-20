@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implementation"
+  short_description: "Implement approved changes without self-certifying gates"
+  default_prompt: "Use $implementation to complete this role contract and return structured output to the root session."
