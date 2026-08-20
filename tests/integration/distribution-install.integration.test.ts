@@ -50,6 +50,15 @@ it('initializes built-ins and distinct active Codex and Claude installations ide
   expect(inspectLocalState(input)).toMatchObject({ ok: true, code: 'HEALTHY', activeInstallations: 2 });
   expect(statSync(credentialFiles.codex).mode & 0o077).toBe(0);
   expect(readFileSync(credentialFiles.codex, 'utf8')).not.toContain('claude-secret');
+
+  writeFileSync(credentialFiles.codex, 'rotated-without-reinitializing\n');
+  expect(inspectLocalState(input)).toMatchObject({
+    ok: false,
+    code: 'UNHEALTHY',
+    databaseIntegrity: true,
+    contentIntegrity: true,
+    activeInstallations: 2,
+  });
 });
 
 it('serves health through the configured Coder host while the app remains loopback-oriented', async () => {

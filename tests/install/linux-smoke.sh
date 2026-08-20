@@ -40,7 +40,16 @@ for client in codex claude; do
   cat > "$client_bin/$client" <<EOF
 #!/usr/bin/env bash
 printf '%s %s\n' '$client' "\$*" >> '$client_log'
-case "\$*" in *--json*) printf '[]\n';; esac
+case "\$*" in
+  'plugin marketplace list --json')
+    if [[ '$client' = codex ]]; then printf '{"marketplaces":[]}\n'; else printf '[]\n'; fi ;;
+  'plugin list --json')
+    if [[ '$client' = codex ]]; then
+      printf '{"installed":[],"available":[{"pluginId":"project-orchestrator@project-orchestrator-local"}]}\n'
+    else
+      printf '[]\n'
+    fi ;;
+esac
 EOF
   chmod +x "$client_bin/$client"
 done

@@ -16,6 +16,7 @@ export type LocalStateInspection = Readonly<{
   databaseIntegrity: boolean;
   contentIntegrity: boolean;
   activeInstallations: number;
+  clientInstallations: boolean;
 }>;
 
 function readCredential(path: string): string {
@@ -67,13 +68,25 @@ export function inspectLocalState(input: LocalStateInput): LocalStateInspection 
   let databaseIntegrity = false;
   let contentIntegrity = false;
   let activeInstallations = 0;
+  let clientInstallations = false;
   try {
-    readCredential(input.credentialFiles.codex);
-    readCredential(input.credentialFiles.claude);
+    const credentials = {
+      codex: readCredential(input.credentialFiles.codex),
+      claude: readCredential(input.credentialFiles.claude),
+    };
     const db = openDatabase(input.databasePath);
     try {
       databaseIntegrity = db.pragma('integrity_check', { simple: true }) === 'ok';
       activeInstallations = Number((db.prepare("SELECT count(*) AS count FROM client_installations WHERE status='active'").get() as { count: number }).count);
+      const rows = db.prepare(`SELECT id,client_type,status,credential_hash FROM client_installations
+        WHERE id IN ('local-codex','local-claude') ORDER BY id`).all() as Array<{
+          id: string; client_type: string; status: string; credential_hash: string;
+        }>;
+      clientInstallations = (['codex', 'claude'] as const).every((clientType) => {
+        const row = rows.find((candidate) => candidate.id === `local-${clientType}`);
+        return row?.client_type === clientType && row.status === 'active'
+          && row.credential_hash === createHash('sha256').update(credentials[clientType]).digest('hex');
+      });
       const content = new ContentStore(input.objectsPath, db);
       for (const row of db.prepare('SELECT id FROM content_objects').all() as Array<{ id: string }>) content.verify(row.id);
       contentIntegrity = true;
@@ -83,6 +96,9 @@ export function inspectLocalState(input: LocalStateInput): LocalStateInspection 
   } catch {
     // Doctor returns a stable non-secret result instead of leaking paths or credentials.
   }
-  const ok = databaseIntegrity && contentIntegrity && activeInstallations === 2;
-  return Object.freeze({ ok, code: ok ? 'HEALTHY' : 'UNHEALTHY', databaseIntegrity, contentIntegrity, activeInstallations });
+  const ok = databaseIntegrity && contentIntegrity && activeInstallations === 2 && clientInstallations;
+  return Object.freeze({
+    ok, code: ok ? 'HEALTHY' : 'UNHEALTHY', databaseIntegrity, contentIntegrity,
+    activeInstallations, clientInstallations,
+  });
 }
