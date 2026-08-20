@@ -1,0 +1,27 @@
+import { defineWorkspace } from 'vitest/config';
+
+const aliases = {
+  '@project-orchestrator/contracts': new URL('./packages/contracts/src/index.ts', import.meta.url).pathname,
+  '@project-orchestrator/sqlite-store': new URL('./packages/sqlite-store/src/index.ts', import.meta.url).pathname,
+  '@project-orchestrator/content-store': new URL('./packages/content-store/src/index.ts', import.meta.url).pathname,
+  '@project-orchestrator/orchestrator-service': new URL('./packages/orchestrator-service/src/index.ts', import.meta.url).pathname,
+};
+
+export default defineWorkspace([
+  {
+    resolve: { alias: aliases },
+    test: {
+      name: 'unit',
+      include: ['packages/*/test/**/*.test.ts'],
+      exclude: ['packages/*/test/**/*.integration.test.ts'],
+    },
+  },
+  {
+    resolve: { alias: aliases },
+    test: {
+      name: 'integration',
+      include: ['tests/integration/**/*.test.ts', 'packages/*/test/**/*.integration.test.ts'],
+      testTimeout: 30_000,
+    },
+  },
+]);
