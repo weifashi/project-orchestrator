@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ContentStore } from '@project-orchestrator/content-store';
+import type { WorkflowVersionEnvelope } from '@project-orchestrator/contracts';
 import { SqliteConfigRepository, migrate, openDatabase } from '@project-orchestrator/sqlite-store';
 import { BUILTIN_ROLE_SLUGS, ConfigService, seedBuiltins } from '../src/index.js';
 
@@ -30,7 +31,7 @@ describe('built-in configuration', () => {
     expect(templates).toHaveLength(3);
     const readTemplate = (slug: string) => JSON.parse(Buffer.from(content.read(
       templates.find((template) => template.slug === slug)!.contentObjectId,
-    )).toString('utf8')) as { data: { stages: Array<Record<string, unknown>>; iteration_groups: Array<Record<string, unknown>> } };
+    )).toString('utf8')) as WorkflowVersionEnvelope;
     const newProject = readTemplate('new-project');
     expect(newProject.data.iteration_groups).toContainEqual({
       key: 'delivery_loop', entry_stage_key: 'implementation',
@@ -75,6 +76,24 @@ describe('built-in configuration', () => {
           edges: [], iteration_groups: [],
         },
       },
+    })).toThrow(/SAFETY_BASELINE/);
+
+    const gateBypass = structuredClone(newProject);
+    gateBypass.data.version = 2;
+    gateBypass.data.edges = gateBypass.data.edges.filter((edge) => !(
+      ['code-review', 'testing', 'security'].includes(edge.from) && edge.to === 'operations'
+    ));
+    gateBypass.data.edges.push({ from: 'requirements', to: 'operations', edge_type: 'on_success' });
+    expect(() => service.publishWorkflow({
+      workflowTemplateId: template.id, envelope: gateBypass,
+    })).toThrow(/SAFETY_BASELINE/);
+
+    const memoryBypass = structuredClone(newProject);
+    memoryBypass.data.version = 2;
+    memoryBypass.data.edges = memoryBypass.data.edges.filter((edge) => !(edge.from === 'operations' && edge.to === 'memory-docs'));
+    memoryBypass.data.edges.push({ from: 'requirements', to: 'memory-docs', edge_type: 'on_success' });
+    expect(() => service.publishWorkflow({
+      workflowTemplateId: template.id, envelope: memoryBypass,
     })).toThrow(/SAFETY_BASELINE/);
     db.close();
   });

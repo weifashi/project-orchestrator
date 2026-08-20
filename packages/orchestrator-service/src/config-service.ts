@@ -273,6 +273,13 @@ export class ConfigService {
     const anyTrue = (paths: string[]): ConditionExpression => ({
       op: 'any', items: paths.map((path) => ({ op: 'eq', path, value: true })),
     });
+    const requireDependency = (from: string, to: string, requireSuccess: boolean): void => {
+      const present = envelope.data.edges.some((edge) => edge.from === from && edge.to === to
+        && (!requireSuccess || edge.edge_type === 'on_success') && edge.condition === undefined);
+      if (!present) {
+        throw new Error(`SAFETY_BASELINE_INCOMPATIBLE: required dependency ${from} -> ${to} is missing`);
+      }
+    };
 
     if (templateSlug === 'new-project') {
       for (const key of ['requirements', 'research', 'architecture', 'ui-design', 'implementation', 'code-review', 'testing', 'security', 'operations', 'memory-docs']) {
@@ -284,6 +291,8 @@ export class ConfigService {
         || requiredGates.some((gate) => !group.gate_stage_keys.includes(gate)) || group.max_iterations > 3) {
         throw new Error('SAFETY_BASELINE_INCOMPATIBLE: new-project delivery_loop was removed or weakened');
       }
+      for (const gate of requiredGates) requireDependency(gate, 'operations', true);
+      requireDependency('operations', 'memory-docs', true);
       return;
     }
 
@@ -293,6 +302,7 @@ export class ConfigService {
       requireStage('ui-design', { optional: true, condition: anyTrue(['run_input.user_visible_change']) });
       requireStage('security', { optional: true, condition: anyTrue(['run_input.changes.permissions', 'run_input.changes.secrets', 'run_input.changes.external_input', 'run_input.changes.dependencies']) });
       requireStage('operations', { optional: true, confirmation: true, condition: anyTrue(['run_input.changes.runtime', 'run_input.changes.migration', 'run_input.changes.release_artifact']) });
+      requireDependency('operations', 'memory-docs', false);
       return;
     }
 
@@ -302,6 +312,7 @@ export class ConfigService {
       requireStage('ui-design', { optional: true, condition: anyTrue(['run_input.user_visible_behavior_change']) });
       requireStage('security', { optional: true, condition: anyTrue(['run_input.security_sensitive']) });
       requireStage('operations', { optional: true, confirmation: true, condition: anyTrue(['run_input.requires_release', 'run_input.requires_migration']) });
+      requireDependency('operations', 'memory-docs', false);
     }
   }
 }

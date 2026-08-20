@@ -73,6 +73,15 @@ export const CommandResponseEnvelopeSchema = Envelope('project-orchestrator/comm
   stage_run_id: Type.Optional(Type.String()),
 }, { additionalProperties: false }));
 
+export const MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS = [
+  { name: 'create-run', schema: CreateRunRequestEnvelopeSchema },
+  { name: 'claim-run', schema: ClaimRunRequestEnvelopeSchema },
+  { name: 'begin-stage', schema: BeginStageRequestEnvelopeSchema },
+  { name: 'complete-stage', schema: CompleteStageRequestEnvelopeSchema },
+  { name: 'fail-stage', schema: FailStageRequestEnvelopeSchema },
+  { name: 'confirmation-request', schema: ConfirmationRequestEnvelopeSchema },
+] as const;
+
 export type StageOutputData = Static<typeof StageOutputDataSchema>;
 export type StageOutputEnvelope = Static<typeof StageOutputEnvelopeSchema>;
 export type CreateRunRequestEnvelope = Static<typeof CreateRunRequestEnvelopeSchema>;

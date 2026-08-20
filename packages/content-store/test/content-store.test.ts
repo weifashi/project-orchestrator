@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { migrate, openDatabase } from '@project-orchestrator/sqlite-store';
 import { ContentStore, canonicalJson } from '../src/index.js';
@@ -75,6 +76,52 @@ describe('content store', () => {
     expect(readdirSync(directory).filter((name) => name.includes('.tmp-'))).toEqual([]);
     db.close();
   });
+
+  it('deduplicates simultaneous writes from independent processes and database connections', async () => {
+    const { db, root, store } = fixture();
+    const databasePath = (db.prepare('PRAGMA database_list').get() as { file: string }).file;
+    const directory = dirname(root);
+    const readyPaths = [join(directory, 'writer-1.ready'), join(directory, 'writer-2.ready')];
+    const goPath = join(directory, 'writers.go');
+    const workerPath = new URL('./content-writer.mjs', import.meta.url).pathname;
+    const runWriter = (readyPath: string): Promise<string> => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [workerPath, databasePath, root, readyPath, goPath], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      child.on('error', reject);
+      child.on('exit', (code) => {
+        if (code === 0) resolve(stdout.trim());
+        else reject(new Error(`writer exited ${String(code)}: ${stderr}`));
+      });
+    });
+    const writers = readyPaths.map((readyPath) => runWriter(readyPath));
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + 10_000;
+      const waitForReady = (): void => {
+        if (readyPaths.every((path) => existsSync(path))) {
+          resolve();
+        } else if (Date.now() >= deadline) {
+          reject(new Error('writers did not become ready'));
+        } else {
+          setTimeout(waitForReady, 10);
+        }
+      };
+      waitForReady();
+    });
+    writeFileSync(goPath, 'go');
+    const objectIds = await Promise.all(writers);
+    expect(new Set(objectIds).size).toBe(1);
+    expect(db.prepare('SELECT count(*) AS count FROM content_objects').get()).toEqual({ count: 1 });
+    const objectId = objectIds[0] as string;
+    store.verify(objectId);
+    const object = db.prepare('SELECT storage_key FROM content_objects WHERE id=?').get(objectId) as { storage_key: string };
+    expect(readdirSync(dirname(join(root, object.storage_key))).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    db.close();
+  }, 20_000);
 
   it('detects tampering and refuses symlinks or storage paths outside the root', () => {
     const { db, root, store } = fixture();

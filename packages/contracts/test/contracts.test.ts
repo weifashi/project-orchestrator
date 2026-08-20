@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ContractValidator,
   CreateRunRequestEnvelopeSchema,
+  MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS,
   StageOutputEnvelopeSchema,
   WorkflowVersionEnvelopeSchema,
 } from '../src/index.js';
@@ -78,5 +79,16 @@ describe('contract envelopes', () => {
       schema_version: 1,
       data: { request_id: 'request-1', workflow_version_id: 'workflow-v1', project_id: 'project-1', lease_token: 'secret' },
     })).toThrow(/additionalProperties/);
+  });
+
+  it('keeps lease secrets out of every model-visible write contract', () => {
+    expect(MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS.map(({ name }) => name)).toEqual([
+      'create-run', 'claim-run', 'begin-stage', 'complete-stage', 'fail-stage', 'confirmation-request',
+    ]);
+    for (const { name, schema } of MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS) {
+      const serialized = JSON.stringify(schema);
+      expect(serialized, name).not.toContain('lease_token');
+      expect(serialized, name).not.toContain('lease_epoch');
+    }
   });
 });
