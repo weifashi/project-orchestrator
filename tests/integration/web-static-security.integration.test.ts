@@ -62,6 +62,12 @@ it("bootstraps an HttpOnly local session and serves SPA assets under a closed CS
   });
   expect(login.statusCode).toBe(200);
   expect(login.body).not.toContain("secret web token");
+  expect(login.body).toContain("bootstrap-card");
+  expect(login.body).toContain("连接本机控制台");
+  expect(login.body).toContain("Coder 安全代理");
+  expect(login.body).toContain("Web token");
+  expect(login.body).not.toContain("<body><main><h1>连接本机编排器</h1>");
+  expect(login.headers["content-security-policy"]).toMatch(/style-src 'self' 'nonce-[A-Za-z0-9_-]+'/);
   expect(
     (
       await app.inject({

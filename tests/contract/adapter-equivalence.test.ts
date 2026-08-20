@@ -8,6 +8,9 @@ describe('cross-client adapter contract', () => {
     const make = (clientType: 'codex' | 'claude') => new AdapterRuntime({
       capabilities: createConservativeCapabilities(clientType, '0.1.0'),
       sessionGuard: new SessionGuard({ sessionId: `${clientType}-root` }),
+      workspace: () => ({
+        repositoryHead: 'abc', stagedPatch: '', unstagedPatch: '', untrackedManifest: [], submoduleManifest: [],
+      }),
       send: async (request) => {
         sent.push(request);
         const tool = (request as { tool: string }).tool;
@@ -17,8 +20,7 @@ describe('cross-client adapter contract', () => {
       },
     });
     const request = {
-      request_id: 'request-1', workflow_version_id: 'workflow-v1', project_id: 'project-1', objective: 'Build it',
-      input: {}, workspace: { repository_head: 'abc', staged_patch: '', unstaged_patch: '', untracked_manifest: [], submodule_manifest: [] },
+      request_id: 'request-1', workflow_slug: 'new-project', objective: 'Build it', input: {},
     };
     const codexRuntime = make('codex');
     const claudeRuntime = make('claude');

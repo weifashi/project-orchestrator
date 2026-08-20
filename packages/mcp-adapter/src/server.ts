@@ -6,6 +6,14 @@ import { INTERNAL_TOOL_REQUEST_SCHEMAS } from '@project-orchestrator/contracts/i
 import type { HostCapabilities, InvocationPrincipal, SessionGuard } from '@project-orchestrator/adapter-core';
 import { createToolRegistry, type ToolDefinition } from './tool-registry.js';
 
+type WorkspaceState = Readonly<{
+  repositoryHead: string;
+  stagedPatch: string;
+  unstagedPatch: string;
+  untrackedManifest: unknown;
+  submoduleManifest: unknown;
+}>;
+
 const HIDDEN_KEYS = new Set([
   'lease_token', 'lease_epoch', 'recovery_credential',
   'leaseToken', 'leaseEpoch', 'recoveryCredential',
@@ -24,11 +32,22 @@ function stripSecrets(value: unknown): unknown {
     .map(([key, child]) => [snakeCase(key), stripSecrets(child)]));
 }
 
+function wireWorkspace(state: WorkspaceState): Record<string, unknown> {
+  return {
+    repository_head: state.repositoryHead,
+    staged_patch: state.stagedPatch,
+    unstaged_patch: state.unstagedPatch,
+    untracked_manifest: state.untrackedManifest,
+    submodule_manifest: state.submoduleManifest,
+  };
+}
+
 export class AdapterRuntime {
   readonly capabilities: HostCapabilities;
   readonly #guard: SessionGuard;
   readonly #send: (request: unknown) => Promise<unknown>;
   readonly #principal: InvocationPrincipal;
+  readonly #workspace: () => WorkspaceState;
   readonly #validator = new ContractValidator();
 
   constructor(input: {
@@ -36,11 +55,15 @@ export class AdapterRuntime {
     sessionGuard: SessionGuard;
     send: (request: unknown) => Promise<unknown>;
     principal?: InvocationPrincipal;
+    workspace?: () => WorkspaceState;
   }) {
     this.capabilities = input.capabilities;
     this.#guard = input.sessionGuard;
     this.#send = input.send;
     this.#principal = input.principal ?? input.sessionGuard.rootPrincipal();
+    this.#workspace = input.workspace ?? (() => {
+      throw new Error('WORKSPACE_SNAPSHOT_UNAVAILABLE');
+    });
   }
 
   tools(): ToolDefinition[] {
@@ -55,7 +78,7 @@ export class AdapterRuntime {
     }
     let internal: Record<string, unknown>;
     if (tool === 'create_run') {
-      internal = { kind: 'tool', tool, payload };
+      internal = { kind: 'tool', tool, payload: { ...payload, workspace: wireWorkspace(this.#workspace()) } };
     } else if (tool === 'claim_run') {
       const runId = String(payload['run_id']);
       const recoveryCredential = this.#guard.recoveryCredential(runId);

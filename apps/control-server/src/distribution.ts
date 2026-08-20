@@ -45,7 +45,7 @@ export function initializeLocalState(input: LocalStateInput): void {
     for (const clientType of ['codex', 'claude'] as const) {
       const capability = content.putCanonicalJson({
         clientType,
-        adapterVersion: '0.1.0',
+        adapterVersion: '0.1.1',
         trustedRootSessionIdentity: true,
         parallelSubagentIsolation: false,
         trustedInteractiveConfirmation: false,
@@ -56,7 +56,7 @@ export function initializeLocalState(input: LocalStateInput): void {
         VALUES(?,?,?,?,?,'active',?)
         ON CONFLICT(id) DO UPDATE SET adapter_version=excluded.adapter_version,
           capability_object_id=excluded.capability_object_id,credential_hash=excluded.credential_hash,status='active'`)
-        .run(`local-${clientType}`, clientType, '0.1.0', capability.id,
+        .run(`local-${clientType}`, clientType, '0.1.1', capability.id,
           createHash('sha256').update(credentials[clientType]).digest('hex'), now);
     }
   } finally {

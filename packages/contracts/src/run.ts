@@ -46,8 +46,9 @@ const StageRequestIdentitySchema = {
 
 export const CreateRunRequestEnvelopeSchema = Envelope('project-orchestrator/create-run-request', 1, Type.Object({
   ...RequestIdentitySchema,
-  workflow_version_id: Type.String({ minLength: 1 }),
-  project_id: Type.String({ minLength: 1 }),
+  workflow_slug: Type.String({ minLength: 1 }),
+  objective: Type.String(),
+  input: Type.Unknown(),
 }, { additionalProperties: false }));
 
 export const ClaimRunRequestEnvelopeSchema = Envelope('project-orchestrator/claim-run-request', 1, Type.Object({

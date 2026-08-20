@@ -34,8 +34,10 @@ export const WorkspaceStateSchema = closed({
 });
 
 export const CreateRunToolRequestSchema = closed({
-  ...Request(), workflow_version_id: Id(), project_id: Id(), objective: Type.String(),
-  input: Type.Unknown(), workspace: WorkspaceStateSchema,
+  ...Request(), workflow_slug: Id(), objective: Type.String(), input: Type.Unknown(),
+});
+export const CreateRunInternalPayloadSchema = closed({
+  ...Request(), workflow_slug: Id(), objective: Type.String(), input: Type.Unknown(), workspace: WorkspaceStateSchema,
 });
 export const ClaimRunToolRequestSchema = closed({
   ...RunRequest(),

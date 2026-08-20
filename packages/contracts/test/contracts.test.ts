@@ -83,7 +83,7 @@ describe('contract envelopes', () => {
     expect(() => validator.check(CreateRunRequestEnvelopeSchema, {
       schema_id: 'project-orchestrator/create-run-request',
       schema_version: 1,
-      data: { request_id: 'request-1', workflow_version_id: 'workflow-v1', project_id: 'project-1', lease_token: 'secret' },
+      data: { request_id: 'request-1', workflow_slug: 'new-project', objective: 'test', input: {}, lease_token: 'secret' },
     })).toThrow(/additionalProperties/);
   });
 

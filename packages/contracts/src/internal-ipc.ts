@@ -1,5 +1,10 @@
 import { Type, type Static, type TSchema } from '@sinclair/typebox';
-import { AgentToolNames, MODEL_VISIBLE_TOOL_SCHEMAS, type AgentToolName } from './tool-contracts.js';
+import {
+  AgentToolNames,
+  CreateRunInternalPayloadSchema,
+  MODEL_VISIBLE_TOOL_SCHEMAS,
+  type AgentToolName,
+} from './tool-contracts.js';
 
 export const InternalPrincipalSchema = Type.Object({
   installation_id: Type.String({ minLength: 1 }),
@@ -32,7 +37,7 @@ const leased = <T extends TSchema>(tool: AgentToolName, payload: T) => bootstrap
 });
 
 export const INTERNAL_TOOL_REQUEST_SCHEMAS = {
-  create_run: bootstrap('create_run', MODEL_VISIBLE_TOOL_SCHEMAS.create_run),
+  create_run: bootstrap('create_run', CreateRunInternalPayloadSchema),
   claim_run: bootstrap('claim_run', MODEL_VISIBLE_TOOL_SCHEMAS.claim_run, {
     expected_lease_epoch: Type.Integer({ minimum: 0 }),
     recovery_credential: Type.Optional(Type.String({ minLength: 1 })),

@@ -7,6 +7,10 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { AgentToolNames } from '@project-orchestrator/contracts';
 import { describe, expect, it } from 'vitest';
 
+const workspace = {
+  repository_head: 'abc', staged_patch: '', unstaged_patch: '', untracked_manifest: [], submodule_manifest: [],
+};
+
 async function fakeIpcServer(path: string, requests: unknown[]): Promise<Server> {
   const server = createServer((socket: Socket) => {
     socket.setEncoding('utf8');
@@ -44,10 +48,6 @@ function closeServer(server: Server): Promise<void> {
   return new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()));
 }
 
-const workspace = {
-  repository_head: 'abc', staged_patch: '', unstaged_patch: '', untracked_manifest: [], submodule_manifest: [],
-};
-
 describe('stdio MCP cross-client equivalence', () => {
   it('runs Codex and Claude adapter processes against one IPC contract', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'mcp-equivalence-'));
@@ -84,7 +84,7 @@ describe('stdio MCP cross-client equivalence', () => {
 
       const invokeSequence = async (client: Client) => {
         const created = await client.callTool({ name: 'create_run', arguments: {
-          request_id: 'create-1', workflow_version_id: 'workflow-v1', project_id: 'project-1', objective: 'Build', input: {}, workspace,
+          request_id: 'create-1', workflow_slug: 'new-project', objective: 'Build', input: {},
         } });
         const claimed = await client.callTool({ name: 'claim_run', arguments: {
           request_id: 'claim-1', run_id: 'run-1', mode: 'start', expected_status: 'created',

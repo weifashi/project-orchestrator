@@ -19,7 +19,7 @@ export type ToolDefinition = Readonly<{
 }>;
 
 const descriptions: Record<AgentToolName, string> = {
-  create_run: 'Create an immutable Run snapshot from a published workflow.',
+  create_run: 'Create an immutable Run snapshot for this project from a published workflow slug (new-project, feature-development, or bug-fix).',
   claim_run: 'Claim or recover a Run for this authenticated installation.',
   heartbeat_run: 'Extend the current Run lease.',
   begin_stage: 'Begin one ready stage attempt.',

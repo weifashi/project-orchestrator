@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import type Database from 'better-sqlite3';
 import { canonicalJson, type ContentStore } from '@project-orchestrator/content-store';
 import {
@@ -68,25 +68,27 @@ export class RunService {
   }
 
   createRun(input: {
-    requestId: string; projectId: string; workflowVersionId: string; objective: string; runInput: unknown;
+    requestId: string; workflowSlug?: string; projectId?: string; workflowVersionId?: string; objective: string; runInput: unknown;
     principal: AdapterPrincipal; workspace: WorkspaceState;
   }): { runId: string } {
     return this.command(input.principal.installationId, 'create_run', input.requestId, input, () => {
       if (input.principal.sessionId !== input.principal.rootSessionId) throw new Error('POLICY_VIOLATION: subagent write rejected');
-      const version = this.db.prepare(`SELECT id,content_object_id,safety_baseline_version FROM workflow_versions WHERE id=?`)
-        .get(input.workflowVersionId) as PublishedWorkflowRow | undefined;
+      const version = input.workflowSlug === undefined
+        ? this.db.prepare(`SELECT id,content_object_id,safety_baseline_version FROM workflow_versions WHERE id=?`)
+          .get(input.workflowVersionId) as PublishedWorkflowRow | undefined
+        : this.db.prepare(`SELECT wv.id,wv.content_object_id,wv.safety_baseline_version
+          FROM workflow_templates wt JOIN workflow_versions wv ON wv.id=wt.current_version_id
+          WHERE wt.slug=? AND wt.status='active'`)
+          .get(input.workflowSlug) as PublishedWorkflowRow | undefined;
       if (!version) throw new Error('NOT_FOUND: workflow version');
       const installation = this.db.prepare('SELECT status,capability_object_id,client_type,adapter_version FROM client_installations WHERE id=?')
         .get(input.principal.installationId) as InstallationRow | undefined;
       if (installation?.status !== 'active' || installation.client_type !== input.principal.clientType) {
         throw new Error('POLICY_VIOLATION: inactive or mismatched installation');
       }
-      const project = this.db.prepare('SELECT canonical_path FROM projects WHERE id=?').get(input.projectId) as
-        { canonical_path: string } | undefined;
-      if (!project) throw new Error('NOT_FOUND: project');
-      if (!this.sameCanonicalProject(project.canonical_path, input.principal.canonicalProjectPath)) {
-        throw new Error('PROJECT_PATH_CHANGED: authenticated adapter project does not match selected project');
-      }
+      const projectId = input.workflowSlug === undefined
+        ? this.requireExistingProject(input.projectId, input.principal.canonicalProjectPath)
+        : this.ensureProject(input.principal.canonicalProjectPath);
       const workflow = this.readJson<WorkflowVersionEnvelope>(version.content_object_id);
       validateWorkflowGraph(workflow.data);
       let capability: ReturnType<typeof readRunCapabilities>;
@@ -128,7 +130,7 @@ export class RunService {
       this.db.prepare(`INSERT INTO runs
         (id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?)`)
-        .run(runId, input.projectId, input.workflowVersionId, input.objective, canonicalJson(input.runInput),
+        .run(runId, projectId, version.id, input.objective, canonicalJson(input.runInput),
           input.principal.clientType, input.principal.installationId, input.principal.rootSessionId, 'created', now);
       this.db.prepare(`INSERT INTO run_snapshots
         (run_id,workflow_object_id,role_bundle_object_id,rule_bundle_object_id,safety_baseline_object_id,
@@ -143,7 +145,7 @@ export class RunService {
       new EvidenceService(this.db, this.content).recordCheckpoint({
         runId, kind: 'run_start', baselineFingerprint: fingerprint, state: input.workspace,
       });
-      this.events.append(runId, 'run_created', 'server', { workflowVersionId: input.workflowVersionId });
+      this.events.append(runId, 'run_created', 'server', { workflowVersionId: version.id });
       return { runId };
     });
   }
@@ -527,6 +529,32 @@ export class RunService {
     });
   }
 
+  private ensureProject(adapterPath: string): string {
+    const canonicalPath = this.canonicalDirectory(adapterPath);
+    if (canonicalPath === undefined) throw new Error('PROJECT_PATH_CHANGED: authenticated adapter project is unavailable');
+    const existing = this.db.prepare('SELECT id FROM projects WHERE canonical_path=?').get(canonicalPath) as { id: string } | undefined;
+    const now = new Date().toISOString();
+    if (existing !== undefined) {
+      this.db.prepare('UPDATE projects SET last_seen_at=? WHERE id=?').run(now, existing.id);
+      return existing.id;
+    }
+    const id = randomUUID();
+    this.db.prepare(`INSERT INTO projects(id,canonical_path,display_name,repository_fingerprint,created_at,last_seen_at)
+      VALUES(?,?,?,?,?,?)`).run(id, canonicalPath, basename(canonicalPath), digest({ canonicalPath }), now, now);
+    return id;
+  }
+
+  private requireExistingProject(projectId: string | undefined, adapterPath: string): string {
+    if (!projectId) throw new Error('NOT_FOUND: project');
+    const project = this.db.prepare('SELECT canonical_path FROM projects WHERE id=?').get(projectId) as
+      { canonical_path: string } | undefined;
+    if (!project) throw new Error('NOT_FOUND: project');
+    if (!this.sameCanonicalProject(project.canonical_path, adapterPath)) {
+      throw new Error('PROJECT_PATH_CHANGED: authenticated adapter project does not match selected project');
+    }
+    return projectId;
+  }
+
   private leasedOnce<T>(
     input: { requestId: string; proof: LeaseProof; principal: AdapterPrincipal }, operation: string,
     replayCode: string, work: () => T,
@@ -792,6 +820,18 @@ export class RunService {
       return databaseRoot === resolve(databasePath) && adapterRoot === resolve(adapterPath) && databaseRoot === adapterRoot;
     } catch {
       return false;
+    }
+  }
+
+  private canonicalDirectory(path: string): string | undefined {
+    try {
+      if (!isAbsolute(path)) return undefined;
+      const stats = lstatSync(path);
+      if (stats.isSymbolicLink() || !stats.isDirectory()) return undefined;
+      const canonical = realpathSync(path);
+      return canonical === resolve(path) ? canonical : undefined;
+    } catch {
+      return undefined;
     }
   }
 

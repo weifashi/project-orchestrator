@@ -8,3 +8,5 @@ Exactly nineteen orchestration write tools are visible. `create_run` and `claim_
 - Confirmation/effects: `request_confirmation`, `prepare_side_effect`, `execute_side_effect`, `reconcile_side_effect`
 
 `request_confirmation` only creates a request. `submit_confirmation` is deliberately absent and is handled by the trusted Host UI channel.
+
+`create_run` is the first-use bootstrap: its model-visible input is `request_id`, `workflow_slug`, `objective`, and `input`. The Adapter collects the workspace snapshot, and the Control Server resolves the currently published workflow version and registers the authenticated project path atomically. Model-visible input must never include project IDs, workflow-version IDs, or a manually assembled workspace snapshot.

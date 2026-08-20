@@ -76,8 +76,7 @@ export function createControlDispatcher(services: RuntimeServices): {
       case 'create_run':
         return services.runs.createRun({
           requestId,
-          projectId: requiredString(payload, 'project_id'),
-          workflowVersionId: requiredString(payload, 'workflow_version_id'),
+          workflowSlug: requiredString(payload, 'workflow_slug'),
           objective: requiredString(payload, 'objective'),
           runInput: payload['input'],
           principal,

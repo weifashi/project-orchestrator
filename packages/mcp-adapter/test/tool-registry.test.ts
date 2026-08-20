@@ -39,8 +39,7 @@ describe('MCP tool registry', () => {
     const registry = createToolRegistry({ invoke: async () => { throw new Error(`BAD_REQUEST: ${'x'.repeat(30_000)}`); } });
     const tool = registry[0]!;
     const result = await tool.invoke({
-      request_id: 'request-1', workflow_version_id: 'workflow-v1', project_id: 'project-1', objective: 'test', input: {},
-      workspace: { repository_head: 'abc', staged_patch: '', unstaged_patch: '', untracked_manifest: [], submodule_manifest: [] },
+      request_id: 'request-1', workflow_slug: 'new-project', objective: 'test', input: {},
     });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text.length).toBeLessThanOrEqual(4096);
