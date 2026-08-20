@@ -54,6 +54,21 @@ describe('contract envelopes', () => {
     expect(() => validator.check(WorkflowVersionEnvelopeSchema, invalid)).toThrow(/condition/);
   });
 
+  it('rejects duplicate stage keys even when the stage definitions differ', () => {
+    const stage = {
+      key: 'duplicate', role_version_id: 'role-v1', optional: false, mandatory_gate: false,
+      failure_policy: 'fail', max_attempts: 1, requires_confirmation: false,
+    };
+    const input = {
+      schema_id: 'project-orchestrator/workflow-version', schema_version: 1,
+      data: {
+        slug: 'duplicate-keys', version: 1, edges: [], iteration_groups: [],
+        stages: [stage, { ...stage, role_version_id: 'role-v2' }],
+      },
+    };
+    expect(() => validator.check(WorkflowVersionEnvelopeSchema, input)).toThrow(/x-uniqueBy/);
+  });
+
   it('keeps lease secrets out of model-visible contracts', () => {
     const serialized = JSON.stringify(CreateRunRequestEnvelopeSchema);
     expect(serialized).not.toContain('lease_token');

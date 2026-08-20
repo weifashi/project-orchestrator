@@ -1,4 +1,5 @@
-import { chmodSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -26,16 +27,52 @@ describe('content store', () => {
     expect(() => canonicalJson({ infinite: Number.POSITIVE_INFINITY })).toThrow(/finite/);
   });
 
-  it('deduplicates identical and concurrent writes and leaves no temp files', async () => {
+  it('deduplicates identical writes and restores read-only mode on an existing object', () => {
     const { db, root, store } = fixture();
-    const [first, second] = await Promise.all([
-      Promise.resolve().then(() => store.putUtf8('same')),
-      Promise.resolve().then(() => store.putUtf8('same')),
-    ]);
+    const first = store.putUtf8('same');
+    chmodSync(join(root, first.storageKey), 0o664);
+    const second = store.putUtf8('same');
     expect(second).toEqual(first);
     expect(db.prepare('SELECT count(*) AS count FROM content_objects').get()).toEqual({ count: 1 });
     expect(readdirSync(dirname(join(root, first.storageKey))).filter((name) => name.includes('.tmp-'))).toEqual([]);
     expect(lstatSync(join(root, first.storageKey)).mode & 0o777).toBe(0o444);
+    db.close();
+  });
+
+  it('converges on a pre-existing atomic target and cleans temporary files', () => {
+    const { db, root, store } = fixture();
+    const bytes = Buffer.from('pre-existing');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const directory = join(root, hash.slice(0, 2));
+    mkdirSync(directory);
+    writeFileSync(join(directory, hash), bytes, { mode: 0o664 });
+    const object = store.putBytes(bytes, 'text/plain');
+    expect(object.sha256).toBe(hash);
+    expect(lstatSync(join(root, object.storageKey)).mode & 0o777).toBe(0o444);
+    expect(readdirSync(directory).filter((name) => name.includes('.tmp-'))).toEqual([]);
+    db.close();
+  });
+
+  it('rejects an intermediate symlink before writing outside the objects root', () => {
+    const { db, root, store } = fixture();
+    const bytes = Buffer.from('symlink-attempt');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const external = join(dirname(root), 'external-directory');
+    mkdirSync(external);
+    symlinkSync(external, join(root, hash.slice(0, 2)));
+    expect(() => store.putBytes(bytes, 'text/plain')).toThrow(/SYMLINK/);
+    expect(readdirSync(external)).toEqual([]);
+    db.close();
+  });
+
+  it('cleans a temp file when an existing atomic target is invalid', () => {
+    const { db, root, store } = fixture();
+    const bytes = Buffer.from('invalid-target');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const directory = join(root, hash.slice(0, 2));
+    mkdirSync(join(directory, hash), { recursive: true });
+    expect(() => store.putBytes(bytes, 'text/plain')).toThrow(/CONTENT_NOT_REGULAR_FILE/);
+    expect(readdirSync(directory).filter((name) => name.includes('.tmp-'))).toEqual([]);
     db.close();
   });
 

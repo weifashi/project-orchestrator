@@ -8,11 +8,12 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, isAbsolute, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type Database from 'better-sqlite3';
 
 export type ContentObject = Readonly<{
@@ -67,8 +68,12 @@ export class ContentStore {
   readonly #root: string;
 
   constructor(objectsRoot: string, readonly db: Database.Database) {
-    this.#root = resolve(objectsRoot);
-    mkdirSync(this.#root, { recursive: true, mode: 0o700 });
+    const absoluteRoot = resolve(objectsRoot);
+    mkdirSync(absoluteRoot, { recursive: true, mode: 0o700 });
+    const rootStats = lstatSync(absoluteRoot);
+    if (rootStats.isSymbolicLink()) throw new Error('SYMLINK_CONTENT_REJECTED: objects root');
+    if (!rootStats.isDirectory()) throw new Error('CONTENT_ROOT_NOT_DIRECTORY');
+    this.#root = realpathSync(absoluteRoot);
   }
 
   putBytes(bytes: Uint8Array, mediaType: string): ContentObject {
@@ -77,6 +82,7 @@ export class ContentStore {
     const existing = this.findByHash(sha256);
     if (existing !== undefined) {
       this.verify(existing.id);
+      chmodSync(this.safePath(existing.storageKey), 0o444);
       return existing;
     }
 
@@ -84,6 +90,7 @@ export class ContentStore {
     const finalPath = this.safePath(storageKey);
     const directory = dirname(finalPath);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
+    this.assertDirectoryChain(directory);
     const temporaryPath = `${finalPath}.tmp-${randomUUID()}`;
     let temporaryExists = false;
     try {
@@ -102,6 +109,7 @@ export class ContentStore {
         temporaryExists = false;
         this.assertRegularFile(finalPath);
         this.assertHash(finalPath, sha256);
+        chmodSync(finalPath, 0o444);
       } else {
         renameSync(temporaryPath, finalPath);
         temporaryExists = false;
@@ -138,13 +146,14 @@ export class ContentStore {
   read(objectId: string): Uint8Array {
     const object = this.get(objectId);
     const path = this.safePath(object.storageKey);
-    this.assertRegularFile(path);
+    this.verify(objectId);
     return new Uint8Array(readFileSync(path));
   }
 
   verify(objectId: string): void {
     const object = this.get(objectId);
     const path = this.safePath(object.storageKey);
+    this.assertDirectoryChain(dirname(path));
     this.assertRegularFile(path);
     this.assertHash(path, object.sha256);
     const size = lstatSync(path).size;
@@ -171,6 +180,21 @@ export class ContentStore {
       throw new Error('UNSAFE_STORAGE_KEY: path escapes objects root');
     }
     return candidate;
+  }
+
+  private assertDirectoryChain(directory: string): void {
+    const relativeDirectory = relative(this.#root, directory);
+    if (relativeDirectory.startsWith('..') || isAbsolute(relativeDirectory)) {
+      throw new Error('UNSAFE_STORAGE_KEY: directory escapes objects root');
+    }
+    let current = this.#root;
+    for (const component of relativeDirectory.split(sep).filter(Boolean)) {
+      current = resolve(current, component);
+      const stats = lstatSync(current);
+      if (stats.isSymbolicLink()) throw new Error('SYMLINK_CONTENT_REJECTED: directory chain');
+      if (!stats.isDirectory()) throw new Error('CONTENT_DIRECTORY_NOT_DIRECTORY');
+      if (realpathSync(current) !== current) throw new Error('SYMLINK_CONTENT_REJECTED: real path mismatch');
+    }
   }
 
   private assertRegularFile(path: string): void {

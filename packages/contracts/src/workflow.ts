@@ -75,7 +75,7 @@ export const WorkflowIterationGroupSchema = Type.Object({
 export const WorkflowVersionDataSchema = Type.Object({
   slug: Type.String({ minLength: 1 }),
   version: Type.Integer({ minimum: 1 }),
-  stages: Type.Array(WorkflowStageSchema, { minItems: 1, uniqueItems: true }),
+  stages: Type.Array(WorkflowStageSchema, { minItems: 1, uniqueItems: true, 'x-uniqueBy': 'key' }),
   edges: Type.Array(WorkflowEdgeSchema),
   iteration_groups: Type.Array(WorkflowIterationGroupSchema),
 }, { additionalProperties: false });

@@ -132,6 +132,12 @@ BEGIN
   SELECT RAISE(ABORT, 'IMMUTABLE_VERSION');
 END;
 
+CREATE TRIGGER immutable_workflow_version_delete
+BEFORE DELETE ON workflow_versions
+BEGIN
+  SELECT RAISE(ABORT, 'IMMUTABLE_VERSION');
+END;
+
 CREATE TRIGGER immutable_role_version_content
 BEFORE UPDATE ON role_versions
 WHEN NEW.id != OLD.id
@@ -146,6 +152,12 @@ WHEN NEW.id != OLD.id
   OR NEW.forbidden_capabilities != OLD.forbidden_capabilities
   OR NEW.completion_contract_envelope != OLD.completion_contract_envelope
   OR NEW.published_at != OLD.published_at
+BEGIN
+  SELECT RAISE(ABORT, 'IMMUTABLE_VERSION');
+END;
+
+CREATE TRIGGER immutable_role_version_delete
+BEFORE DELETE ON role_versions
 BEGIN
   SELECT RAISE(ABORT, 'IMMUTABLE_VERSION');
 END;

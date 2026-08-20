@@ -48,6 +48,13 @@ describe('configuration repository', () => {
     })).toThrow(/UNIQUE/);
     expect(() => db.prepare('UPDATE role_versions SET skill_hash=? WHERE id=?').run('mutated', 'role-v1'))
       .toThrow(/IMMUTABLE_VERSION/);
+    repository.publishRole({
+      id: 'role-v2', roleId: 'role', versionNumber: 2, contentObjectId: 'object', skillHash: 'hash',
+      inputSchemaEnvelope: {}, outputSchemaEnvelope: {}, requestedCapabilities: ['read'],
+      effectiveCapabilities: ['read'], forbiddenCapabilities: [], completionContractEnvelope: {},
+    });
+    expect(() => db.prepare('DELETE FROM role_versions WHERE id=?').run('role-v1')).toThrow(/IMMUTABLE_VERSION/);
+    expect(repository.getRole('role')?.currentVersionId).toBe('role-v2');
     expect(repository.getPublishedRole('role-v1')).toEqual(record);
     db.close();
   });

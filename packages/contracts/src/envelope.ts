@@ -23,6 +23,22 @@ export class ContractValidator {
 
   constructor() {
     this.#ajv = new Ajv2020({ allErrors: true, strict: false });
+    this.#ajv.addKeyword({
+      keyword: 'x-uniqueBy',
+      type: 'array',
+      schemaType: 'string',
+      errors: false,
+      validate(property: string, values: unknown[]): boolean {
+        const seen = new Set<unknown>();
+        for (const value of values) {
+          if (value === null || typeof value !== 'object') return false;
+          const key = (value as Record<string, unknown>)[property];
+          if (seen.has(key)) return false;
+          seen.add(key);
+        }
+        return true;
+      },
+    });
     const addFormats = createRequire(import.meta.url)('ajv-formats') as FormatsPlugin;
     addFormats(this.#ajv);
   }
