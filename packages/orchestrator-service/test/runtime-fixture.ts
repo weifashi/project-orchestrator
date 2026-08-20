@@ -27,5 +27,5 @@ export function runtimeFixture() {
   db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('workflow','workflow','Workflow','feature','active',?,?)").run(now, now);
   return { dir, db, content, object, now };
 }
-export const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const };
+export const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const, canonicalProjectPath: process.cwd() };
 export const workspace = { repositoryHead: 'head', stagedPatch: '', unstagedPatch: '', untrackedManifest: [], submoduleManifest: [] };

@@ -43,6 +43,7 @@ function derivePrincipal(db: Database.Database, internal: InternalPrincipal): Ad
     sessionId: internal.session_id,
     rootSessionId: internal.root_session_id,
     clientType: installation.client_type,
+    canonicalProjectPath: internal.canonical_project_path,
   });
 }
 
@@ -169,10 +170,11 @@ export function createControlDispatcher(services: RuntimeServices): {
       case 'record_memory': {
         const proof = leaseProof(request, payload);
         return services.runs.recordMemory({
-          requestId, proof, principal, memoryType: requiredString(payload, 'memory_type'),
-          scope: requiredString(payload, 'scope'), title: requiredString(payload, 'title'),
+          requestId, proof, principal, stageRunId: requiredString(payload, 'stage_run_id'),
+          memoryType: requiredString(payload, 'memory_type') as Parameters<RunService['recordMemory']>[0]['memoryType'],
+          scope: requiredString(payload, 'scope') as Parameters<RunService['recordMemory']>[0]['scope'], title: requiredString(payload, 'title'),
           summary: requiredString(payload, 'summary'), content: payload['content'],
-          retentionPolicy: requiredString(payload, 'retention_policy'),
+          retentionPolicy: requiredString(payload, 'retention_policy') as Parameters<RunService['recordMemory']>[0]['retentionPolicy'],
         });
       }
       case 'append_agent_note': {

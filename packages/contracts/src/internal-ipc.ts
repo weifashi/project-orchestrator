@@ -5,11 +5,22 @@ export const InternalPrincipalSchema = Type.Object({
   installation_id: Type.String({ minLength: 1 }),
   root_session_id: Type.String({ minLength: 1 }),
   session_id: Type.String({ minLength: 1 }),
+  canonical_project_path: Type.String({ minLength: 1 }),
 }, { additionalProperties: false });
 
-export const AgentHandshakeSchema = Type.Object({
+export const AgentBootstrapSchema = Type.Object({
+  kind: Type.Literal('bootstrap'),
   credential: Type.String({ minLength: 1 }),
   channel: Type.Union([Type.Literal('agent'), Type.Literal('trusted_confirmation')]),
+  scope: Type.Union([Type.Literal('root'), Type.Literal('subagent')]),
+  canonical_project_path: Type.String({ minLength: 1 }),
+}, { additionalProperties: false });
+
+export const AgentSessionBindingSchema = Type.Object({
+  kind: Type.Literal('bind_root_session'),
+  challenge: Type.String({ minLength: 1 }),
+  session_id: Type.String({ minLength: 1 }),
+  proof: Type.String({ minLength: 1 }),
 }, { additionalProperties: false });
 
 const bootstrap = <T extends TSchema>(tool: AgentToolName, payload: T, extra: Record<string, TSchema> = {}) => Type.Object({
@@ -57,7 +68,8 @@ export const InternalConfirmationDecisionSchema = Type.Object({
   }, { additionalProperties: false }),
 }, { additionalProperties: false });
 
-export type AgentHandshake = Static<typeof AgentHandshakeSchema>;
+export type AgentBootstrap = Static<typeof AgentBootstrapSchema>;
+export type AgentSessionBinding = Static<typeof AgentSessionBindingSchema>;
 export type InternalPrincipal = Static<typeof InternalPrincipalSchema>;
 export type InternalIpcRequest = Static<typeof InternalIpcRequestSchema>;
 export type InternalConfirmationDecision = Static<typeof InternalConfirmationDecisionSchema>;

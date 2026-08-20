@@ -1,10 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { lstatSync, realpathSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import type Database from 'better-sqlite3';
 import { canonicalJson, type ContentStore } from '@project-orchestrator/content-store';
 import {
   ContractValidator,
+  RoleVersionEnvelopeSchema,
+  type MemoryRetentionPolicy,
+  type MemoryScope,
+  type MemoryType,
   SucceededStageOutputEnvelopeSchema,
   type StageOutputEnvelope,
+  type RoleVersionEnvelope,
   type WorkflowStage,
   type WorkflowVersionEnvelope,
 } from '@project-orchestrator/contracts';
@@ -24,12 +31,16 @@ import type { AdapterPrincipal, LeaseProof, WorkspaceState } from './runtime-typ
 import { EvidenceService, workspaceFingerprint } from './evidence-service.js';
 import { ConfirmationService } from './confirmation-service.js';
 import { RecoveryService } from './recovery-service.js';
+import { MemoryService } from './memory-service.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonicalJson(value)).digest('hex');
 type RunRecord = RunRow;
 type AttemptRow = { id: string; stage_run_id: string; attempt_number: number; status: string };
 type PublishedWorkflowRow = { id: string; content_object_id: string; safety_baseline_version: number };
 type InstallationRow = { status: string; capability_object_id: string; client_type: string };
+type FrozenRoleBundle = { roles: Array<{ roleVersionId: string; envelope: RoleVersionEnvelope }> };
+type ArtifactRow = { id: string; content_object_id: string; artifact_type: string };
+type CompletionRequirement = { artifact_type: string; min_count: number };
 
 export type RunServiceOptions = Readonly<{ ruleBundle?: unknown; safetyBaseline?: unknown }>;
 
@@ -68,14 +79,23 @@ export class RunService {
       if (installation?.status !== 'active' || installation.client_type !== input.principal.clientType) {
         throw new Error('POLICY_VIOLATION: inactive or mismatched installation');
       }
-      if (!this.db.prepare('SELECT 1 FROM projects WHERE id=?').get(input.projectId)) throw new Error('NOT_FOUND: project');
+      const project = this.db.prepare('SELECT canonical_path FROM projects WHERE id=?').get(input.projectId) as
+        { canonical_path: string } | undefined;
+      if (!project) throw new Error('NOT_FOUND: project');
+      if (!this.sameCanonicalProject(project.canonical_path, input.principal.canonicalProjectPath)) {
+        throw new Error('PROJECT_PATH_CHANGED: authenticated adapter project does not match selected project');
+      }
       const workflow = this.readJson<WorkflowVersionEnvelope>(version.content_object_id);
       validateWorkflowGraph(workflow.data);
       const roleBundle = workflow.data.stages.map((stage) => {
         const row = this.db.prepare(`SELECT content_object_id,status FROM role_versions WHERE id=?`)
           .get(stage.role_version_id) as { content_object_id: string; status: string } | undefined;
         if (!row || row.status !== 'published') throw new Error(`POLICY_VIOLATION: unavailable role ${stage.role_version_id}`);
-        return { roleVersionId: stage.role_version_id, envelope: this.readJson<unknown>(row.content_object_id) };
+        this.content.verify(row.content_object_id);
+        return {
+          roleVersionId: stage.role_version_id,
+          envelope: this.#validator.check(RoleVersionEnvelopeSchema, this.readJson<unknown>(row.content_object_id)),
+        };
       });
       const roleObject = this.content.putCanonicalJson({ roles: roleBundle });
       const ruleObject = this.content.putCanonicalJson(this.#ruleBundle);
@@ -102,17 +122,15 @@ export class RunService {
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
         .run(runId, version.content_object_id, roleObject.id, ruleObject.id, safetyObject.id, installation.capability_object_id,
           input.workspace.repositoryHead, staged.id, unstaged.id, untracked.id, submodules.id, fingerprint, now);
-      for (const group of workflow.data.iteration_groups) {
-        this.db.prepare(`INSERT INTO run_iterations(id,run_id,group_key,iteration_number,status,created_at)
-          VALUES(?,?,?,1,'running',?)`).run(randomUUID(), runId, group.key, now);
+      for (const stage of workflow.data.stages) {
+        this.insertStageRun(runId, stage, stage.iteration_group_key ? 1 : 0, 'queued', now);
       }
-      const incoming = new Set(workflow.data.edges.map((edge) => edge.to));
-      for (const stage of workflow.data.stages) this.insertStageRun(runId, stage, stage.iteration_group_key ? 1 : 0,
-        !incoming.has(stage.key) && stage.condition === undefined ? 'ready' : 'queued', now);
       new EvidenceService(this.db, this.content).recordCheckpoint({
         runId, kind: 'run_start', baselineFingerprint: fingerprint, state: input.workspace,
       });
       this.events.append(runId, 'run_created', 'server', { workflowVersionId: input.workflowVersionId });
+      this.refreshFrontier(runId);
+      this.failRunIfExhausted(runId, 'REQUIREMENTS_NOT_MET', 'A required stage is unreachable');
       return { runId };
     });
   }
@@ -133,7 +151,9 @@ export class RunService {
       if (begun.kind === 'replay') throw new Error('ALREADY_CLAIMED');
       if (input.mode !== 'start') {
         if (!input.currentWorkspace) throw new Error('WORKTREE_CHANGED: recovery workspace required');
-        const recovery = new RecoveryService(this.db, this.content).check(input.runId, input.currentWorkspace);
+        const recovery = new RecoveryService(this.db, this.content).check(
+          input.runId, input.currentWorkspace, this.recoveryContext(input.runId, input.principal),
+        );
         if (!recovery.ok) throw new Error(`${recovery.code}: ${recovery.diffObjectId}`);
         this.assertSnapshotCompatible(input.runId, input.principal.installationId);
       }
@@ -153,6 +173,7 @@ export class RunService {
       }
       this.events.append(input.runId, 'run_claimed', 'server', { mode: input.mode, leaseEpoch: lease.leaseEpoch });
       this.refreshFrontier(input.runId);
+      this.failRunIfExhausted(input.runId, 'REQUIREMENTS_NOT_MET', 'A required stage is unreachable');
       const afterRefresh = this.requireRun(input.runId);
       if (afterRefresh.status === 'failed') {
         this.idem.complete(begun.id, { claimed: false, failureCode: afterRefresh.failure_code });
@@ -199,18 +220,28 @@ export class RunService {
     return this.leased(input, 'complete_stage', () => {
       const stage = this.requireStageForRun(input.stageRunId, input.proof.runId, 'running');
       const attempt = this.requireRunningAttempt(stage.latest_attempt_id, stage.id);
+      const definition = this.definition(input.proof.runId, stage.stage_key);
+      if (definition.requires_confirmation && !this.hasConsumedConfirmation(input.proof.runId, stage.id, attempt.id)) {
+        throw new Error('POLICY_VIOLATION: consumed confirmation required for current attempt');
+      }
       const output = this.#validator.check(SucceededStageOutputEnvelopeSchema, input.output) as StageOutputEnvelope;
-      this.validateReferencedContent(output.data.artifact_object_ids);
-      this.validateReferencedContent(output.data.evidence_object_ids);
+      const referencedIds = [...output.data.artifact_object_ids, ...output.data.evidence_object_ids,
+        ...(output.data.changed_file_manifest_object_id === undefined ? [] : [output.data.changed_file_manifest_object_id])];
+      this.validateReferencedContent(referencedIds);
       const ownedArtifacts = this.db.prepare(`SELECT id,content_object_id,artifact_type FROM artifacts
-        WHERE run_id=? AND stage_attempt_id=? ORDER BY id`).all(input.proof.runId, attempt.id) as Array<{ id: string; content_object_id: string; artifact_type: string }>;
+        WHERE run_id=? AND stage_attempt_id=? ORDER BY id`).all(input.proof.runId, attempt.id) as ArtifactRow[];
       const ownedContent = new Set(ownedArtifacts.map((artifact) => artifact.content_object_id));
-      for (const id of [...output.data.artifact_object_ids, ...output.data.evidence_object_ids]) {
+      for (const id of referencedIds) {
         if (!ownedContent.has(id)) throw new Error('POLICY_VIOLATION: output references artifact not owned by attempt');
       }
-      const artifactManifest = this.content.putCanonicalJson(ownedArtifacts.filter((artifact) => artifact.artifact_type !== 'test_evidence'));
-      const evidenceManifest = this.content.putCanonicalJson(ownedArtifacts.filter((artifact) => artifact.artifact_type === 'test_evidence'));
-      const changed = this.content.putCanonicalJson(input.changedFiles ?? []);
+      this.validateFrozenRoleContract(input.proof.runId, stage.role_version_id, output, ownedArtifacts);
+      const artifactIds = new Set(output.data.artifact_object_ids);
+      const evidenceIds = new Set(output.data.evidence_object_ids);
+      const artifactManifest = this.content.putCanonicalJson(ownedArtifacts.filter((artifact) => artifactIds.has(artifact.content_object_id)));
+      const evidenceManifest = this.content.putCanonicalJson(ownedArtifacts.filter((artifact) => evidenceIds.has(artifact.content_object_id)));
+      const changed = output.data.changed_file_manifest_object_id === undefined
+        ? this.content.putCanonicalJson(input.changedFiles ?? [])
+        : { id: output.data.changed_file_manifest_object_id };
       const now = new Date().toISOString();
       assertStageTransition('running', 'succeeded');
       assertAttemptTransition('running', 'succeeded');
@@ -220,7 +251,7 @@ export class RunService {
       this.db.prepare(`UPDATE stage_runs SET status='succeeded',updated_at=?,completed_at=? WHERE id=? AND status='running'`)
         .run(now, now, stage.id);
       const lastCheckpoint = this.db.prepare(`SELECT resulting_fingerprint FROM workspace_checkpoints
-        WHERE run_id=? ORDER BY created_at DESC,id DESC LIMIT 1`).get(input.proof.runId) as { resulting_fingerprint: string } | undefined;
+        WHERE run_id=? ORDER BY sequence_number DESC LIMIT 1`).get(input.proof.runId) as { resulting_fingerprint: string } | undefined;
       const checkpoint = new EvidenceService(this.db, this.content).recordCheckpoint({
         runId: input.proof.runId, stageAttemptId: attempt.id, kind: 'after_attempt',
         baselineFingerprint: lastCheckpoint?.resulting_fingerprint ?? workspaceFingerprint(input.workspace), state: input.workspace,
@@ -305,9 +336,37 @@ export class RunService {
           if (stage?.status !== 'succeeded') throw new Error(`POLICY_VIOLATION: latest iteration stage ${key} incomplete`);
         }
       }
-      for (const definition of workflow.data.stages.filter((stage) => !stage.optional && stage.iteration_group_key === undefined)) {
+      for (const definition of workflow.data.stages.filter((stage) => (!stage.optional || stage.mandatory_gate)
+        && stage.iteration_group_key === undefined)) {
         const stage = stages.find((candidate) => candidate.stage_key === definition.key && candidate.iteration_number === 0);
         if (stage?.status !== 'succeeded') throw new Error(`POLICY_VIOLATION: required stage ${definition.key} incomplete`);
+      }
+      const latestByKey = new Map<string, StageRunRow>();
+      for (const stage of stages) {
+        const current = latestByKey.get(stage.stage_key);
+        if (!current || stage.iteration_number > current.iteration_number) latestByKey.set(stage.stage_key, stage);
+      }
+      for (const [key, stage] of latestByKey) {
+        if (stage.status !== 'succeeded' || !stage.latest_attempt_id) continue;
+        const attempt = this.db.prepare(`SELECT status,output_envelope,artifact_manifest_object_id,
+          evidence_manifest_object_id,changed_files_object_id FROM stage_attempts WHERE id=? AND stage_run_id=?`)
+          .get(stage.latest_attempt_id, stage.id) as { status: string; output_envelope: string | null;
+            artifact_manifest_object_id: string | null; evidence_manifest_object_id: string | null; changed_files_object_id: string | null } | undefined;
+        if (!attempt || attempt.status !== 'succeeded' || !attempt.output_envelope || !attempt.artifact_manifest_object_id
+          || !attempt.evidence_manifest_object_id || !attempt.changed_files_object_id) {
+          throw new Error(`POLICY_VIOLATION: latest attempt ${key} lacks frozen completion evidence`);
+        }
+        for (const objectId of [attempt.artifact_manifest_object_id, attempt.evidence_manifest_object_id, attempt.changed_files_object_id]) {
+          this.content.verify(objectId);
+        }
+        const validatedOutput = this.#validator.check(SucceededStageOutputEnvelopeSchema, JSON.parse(attempt.output_envelope)) as StageOutputEnvelope;
+        const artifacts = this.db.prepare(`SELECT id,content_object_id,artifact_type FROM artifacts
+          WHERE run_id=? AND stage_attempt_id=? ORDER BY id`).all(run.id, stage.latest_attempt_id) as ArtifactRow[];
+        this.validateFrozenRoleContract(run.id, stage.role_version_id, validatedOutput, artifacts);
+        const definition = workflow.data.stages.find((candidate) => candidate.key === key);
+        if (definition?.requires_confirmation && !this.hasConsumedConfirmation(run.id, stage.id, stage.latest_attempt_id)) {
+          throw new Error(`POLICY_VIOLATION: required confirmation missing for ${key}`);
+        }
       }
       const succeededWithoutManifest = this.db.prepare(`SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
         WHERE s.run_id=? AND a.status='succeeded' AND (a.artifact_manifest_object_id IS NULL OR a.evidence_manifest_object_id IS NULL OR a.changed_files_object_id IS NULL) LIMIT 1`).get(run.id);
@@ -319,9 +378,11 @@ export class RunService {
         throw new Error('POLICY_VIOLATION: unresolved side effect');
       }
       assertRunTransition(run.status as RunStatus, 'completed');
+      if (run.status !== 'running') throw new Error('INVALID_TRANSITION: finalize requires running run');
       const now = new Date().toISOString();
-      this.db.prepare(`UPDATE runs SET status='completed',completed_at=?,updated_at=? WHERE id=? AND status='running'`)
+      const completed = this.db.prepare(`UPDATE runs SET status='completed',completed_at=?,updated_at=? WHERE id=? AND status='running'`)
         .run(now, now, run.id);
+      if (completed.changes !== 1) throw new Error('INVALID_TRANSITION: finalize race');
       this.leases.release(run.id);
       this.events.append(run.id, 'run_completed', 'server', {});
     });
@@ -340,10 +401,11 @@ export class RunService {
   }): { id: string; nonce: string; expiresAt: string } {
     return this.leasedOnce(input, 'request_confirmation', 'ALREADY_REQUESTED', () => {
       const stage = this.requireStageForRun(input.stageRunId, input.proof.runId, 'running');
+      const attempt = this.requireRunningAttempt(stage.latest_attempt_id, stage.id);
       const snapshot = this.db.prepare('SELECT safety_baseline_object_id FROM run_snapshots WHERE run_id=?')
         .get(input.proof.runId) as { safety_baseline_object_id: string };
       const result = new ConfirmationService(this.db, this.events, this.content).request({
-        runId: input.proof.runId, stageRunId: stage.id, type: input.type, summary: input.summary,
+        runId: input.proof.runId, stageRunId: stage.id, stageAttemptId: attempt.id, type: input.type, summary: input.summary,
         actionHash: input.exactActionHash, safetyBaselineObjectId: snapshot.safety_baseline_object_id,
         installationId: input.principal.installationId,
         ...(input.ttlMs === undefined ? {} : { ttlMs: input.ttlMs }),
@@ -368,6 +430,7 @@ export class RunService {
       const artifact = new EvidenceService(this.db, this.content).recordArtifact({
         runId: input.proof.runId, stageAttemptId: input.stageAttemptId, sourcePath: input.sourcePath,
         artifactType: input.artifactType, summary: input.summary, producerRoleVersionId: input.producerRoleVersionId,
+        adapterContext: { canonicalProjectPath: input.principal.canonicalProjectPath },
         ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
       });
       this.events.append(input.proof.runId, 'artifact_recorded', 'server', { artifactId: artifact.id });
@@ -391,25 +454,32 @@ export class RunService {
   }
 
   recordMemory(input: {
-    requestId: string; proof: LeaseProof; principal: AdapterPrincipal; memoryType: string; scope: string;
-    title: string; summary: string; content: unknown; retentionPolicy: string;
-  }): { id: string; contentObjectId: string } {
+    requestId: string; proof: LeaseProof; principal: AdapterPrincipal; stageRunId: string;
+    memoryType: MemoryType; scope: MemoryScope; title: string; summary: string; content: unknown;
+    retentionPolicy: MemoryRetentionPolicy;
+  }): { id: string; contentObjectId: string; deduplicated: boolean } {
     return this.leased(input, 'record_memory', () => {
-      const run = this.requireRun(input.proof.runId);
-      const object = this.content.putCanonicalJson(input.content);
-      const id = randomUUID();
-      this.db.prepare(`INSERT INTO memories
-        (id,project_id,source_run_id,memory_type,scope,title,summary,content_object_id,retention_policy,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?)`)
-        .run(id, run.project_id, run.id, input.memoryType, input.scope, input.title, input.summary,
-          object.id, input.retentionPolicy, new Date().toISOString());
-      this.events.append(run.id, 'memory_recorded', 'server', { memoryId: id });
-      return { id, contentObjectId: object.id };
+      const memory = new MemoryService(this.db, this.content).record({
+        runId: input.proof.runId, stageRunId: input.stageRunId, memoryType: input.memoryType,
+        scope: input.scope, title: input.title, summary: input.summary, content: input.content,
+        retentionPolicy: input.retentionPolicy,
+      });
+      if (!memory.deduplicated) {
+        this.events.append(input.proof.runId, 'memory_recorded', 'server', { memoryId: memory.id }, input.stageRunId);
+      }
+      return memory;
     });
   }
 
-  checkRecovery(runId: string, current: WorkspaceState): ReturnType<RecoveryService['check']> {
-    return new RecoveryService(this.db, this.content).check(runId, current);
+  checkRecovery(
+    runId: string,
+    current: WorkspaceState,
+    principal: Pick<AdapterPrincipal, 'installationId' | 'canonicalProjectPath'>,
+  ): ReturnType<RecoveryService['check']> {
+    this.requireRun(runId);
+    return new RecoveryService(this.db, this.content).check(
+      runId, current, this.recoveryContext(runId, principal),
+    );
   }
 
   private leased<T>(
@@ -556,11 +626,15 @@ export class RunService {
       const frontier = deriveFrontier(workflow.data, [...latestByKey.values()].map((row) => ({
         stageKey: row.stage_key, status: row.status as StageStatus, iterationNumber: row.iteration_number,
       })), { input: JSON.parse(run.input_envelope) as unknown, outputs, constants: {} });
-      for (const key of frontier.ready) {
+      const parallel = this.adapterCapabilities(runId).parallelSubagentIsolation;
+      const selected = [...latestByKey.values()].some((row) => ['ready', 'running', 'waiting_for_user'].includes(row.status));
+      const readyKeys = parallel || selected ? (parallel ? frontier.ready : []) : frontier.ready.slice(0, 1);
+      for (const key of readyKeys) {
         const row = latestByKey.get(key);
         if (row?.status === 'queued') {
           this.db.prepare(`UPDATE stage_runs SET status='ready',updated_at=? WHERE id=? AND status='queued'`)
             .run(new Date().toISOString(), row.id);
+          if (row.iteration_group_key) this.ensureIteration(runId, row.iteration_group_key, row.iteration_number, new Date().toISOString());
           this.events.append(runId, 'stage_ready', 'server', {}, row.id);
         }
       }
@@ -580,8 +654,29 @@ export class RunService {
 
   private failRunIfExhausted(runId: string, code: string, summary: string): void {
     const workflow = this.workflow(runId);
-    const stages = this.runs.listStageRuns(runId);
+    const latestByKey = new Map<string, StageRunRow>();
+    for (const stage of this.runs.listStageRuns(runId)) {
+      const current = latestByKey.get(stage.stage_key);
+      if (!current || stage.iteration_number > current.iteration_number) latestByKey.set(stage.stage_key, stage);
+    }
+    const stages = [...latestByKey.values()];
     const hasActive = stages.some((stage) => ['ready', 'running', 'waiting_for_user'].includes(stage.status));
+    if (hasActive) return;
+    const requiredIncomplete = stages.some((stage) => {
+      const definition = workflow.data.stages.find((candidate) => candidate.key === stage.stage_key);
+      return definition !== undefined && (!definition.optional || definition.mandatory_gate)
+        && stage.status !== 'succeeded';
+    });
+    if (!requiredIncomplete) return;
+    const hasLocalRetry = stages.some((stage) => {
+      if (!['failed', 'interrupted'].includes(stage.status)) return false;
+      const definition = workflow.data.stages.find((candidate) => candidate.key === stage.stage_key);
+      if (stage.status === 'failed' && definition?.failure_policy !== 'pause') return false;
+      const attempts = this.db.prepare('SELECT count(*) AS count FROM stage_attempts WHERE stage_run_id=?')
+        .get(stage.id) as { count: number };
+      return attempts.count < stage.max_attempts;
+    });
+    if (hasLocalRetry) return;
     const hasRetry = stages.some((stage) => {
       if (!['failed', 'interrupted'].includes(stage.status)) return false;
       const definition = workflow.data.stages.find((candidate) => candidate.key === stage.stage_key);
@@ -589,10 +684,11 @@ export class RunService {
       const attempts = this.db.prepare('SELECT count(*) AS count FROM stage_attempts WHERE stage_run_id=?').get(stage.id) as { count: number };
       return attempts.count < stage.max_attempts;
     });
-    const runningIteration = this.db.prepare(`SELECT 1 FROM run_iterations WHERE run_id=? AND status='running' LIMIT 1`).get(runId);
-    if (!hasActive && !runningIteration) {
-      this.failRun(runId, code, summary, hasRetry);
+    if (!hasRetry) {
+      this.db.prepare(`UPDATE run_iterations SET status='failed',completed_at=? WHERE run_id=? AND status='running'`)
+        .run(new Date().toISOString(), runId);
     }
+    this.failRun(runId, code, summary, hasRetry);
   }
 
   private failRun(runId: string, code: string, summary: string, retryable: boolean): void {
@@ -632,8 +728,110 @@ export class RunService {
     if (revoked) throw new Error('POLICY_VIOLATION: role version revoked');
   }
 
+  private recoveryContext(
+    runId: string,
+    principal: Pick<AdapterPrincipal, 'installationId' | 'canonicalProjectPath'>,
+  ): Parameters<RecoveryService['check']>[2] {
+    const installation = this.db.prepare("SELECT capability_object_id FROM client_installations WHERE id=? AND status='active'")
+      .get(principal.installationId) as { capability_object_id: string } | undefined;
+    if (!installation) throw new Error('ADAPTER_INCOMPATIBLE');
+    return {
+      canonicalProjectPath: principal.canonicalProjectPath,
+      ruleBundleObjectId: this.content.putCanonicalJson(this.#ruleBundle).id,
+      safetyBaselineObjectId: this.content.putCanonicalJson(this.#safetyBaseline).id,
+      adapterCapabilityObjectId: installation.capability_object_id,
+    };
+  }
+
+  private sameCanonicalProject(databasePath: string, adapterPath: string): boolean {
+    try {
+      if (!isAbsolute(databasePath) || !isAbsolute(adapterPath)) return false;
+      const databaseStats = lstatSync(databasePath);
+      const adapterStats = lstatSync(adapterPath);
+      if (databaseStats.isSymbolicLink() || adapterStats.isSymbolicLink()
+        || !databaseStats.isDirectory() || !adapterStats.isDirectory()) return false;
+      const databaseRoot = realpathSync(databasePath);
+      const adapterRoot = realpathSync(adapterPath);
+      return databaseRoot === resolve(databasePath) && adapterRoot === resolve(adapterPath) && databaseRoot === adapterRoot;
+    } catch {
+      return false;
+    }
+  }
+
   private validateReferencedContent(ids: readonly string[]): void {
     for (const id of ids) this.content.verify(id);
+  }
+
+  private adapterCapabilities(runId: string): { parallelSubagentIsolation: boolean } {
+    const snapshot = this.db.prepare('SELECT adapter_capability_object_id FROM run_snapshots WHERE run_id=?')
+      .get(runId) as { adapter_capability_object_id: string } | undefined;
+    if (!snapshot) throw new Error('NOT_FOUND: snapshot');
+    this.content.verify(snapshot.adapter_capability_object_id);
+    const value = this.readJson<unknown>(snapshot.adapter_capability_object_id);
+    const capability = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
+    return { parallelSubagentIsolation: capability['parallelSubagentIsolation'] === true };
+  }
+
+  private ensureIteration(runId: string, groupKey: string, iterationNumber: number, now: string): void {
+    const group = this.workflow(runId).data.iteration_groups.find((candidate) => candidate.key === groupKey);
+    if (!group || iterationNumber < 1 || iterationNumber > group.max_iterations) {
+      throw new Error('POLICY_VIOLATION: invalid iteration activation');
+    }
+    this.db.prepare(`INSERT INTO run_iterations(id,run_id,group_key,iteration_number,status,created_at)
+      VALUES(?,?,?,?,'running',?) ON CONFLICT(run_id,group_key,iteration_number) DO NOTHING`)
+      .run(randomUUID(), runId, groupKey, iterationNumber, now);
+  }
+
+  private hasConsumedConfirmation(runId: string, stageRunId: string, attemptId: string): boolean {
+    return this.db.prepare(`SELECT 1 FROM confirmation_requests WHERE run_id=? AND stage_run_id=?
+      AND stage_attempt_id=? AND status='consumed' LIMIT 1`).get(runId, stageRunId, attemptId) !== undefined;
+  }
+
+  private frozenRole(runId: string, roleVersionId: string): RoleVersionEnvelope {
+    const snapshot = this.db.prepare('SELECT role_bundle_object_id FROM run_snapshots WHERE run_id=?')
+      .get(runId) as { role_bundle_object_id: string } | undefined;
+    if (!snapshot) throw new Error('NOT_FOUND: snapshot');
+    this.content.verify(snapshot.role_bundle_object_id);
+    const bundle = this.readJson<FrozenRoleBundle>(snapshot.role_bundle_object_id);
+    const role = bundle.roles.find((candidate) => candidate.roleVersionId === roleVersionId)?.envelope;
+    if (!role) throw new Error(`POLICY_VIOLATION: role ${roleVersionId} missing from frozen bundle`);
+    return role;
+  }
+
+  private validateFrozenRoleContract(
+    runId: string, roleVersionId: string, output: StageOutputEnvelope, artifacts: readonly ArtifactRow[],
+  ): void {
+    const role = this.frozenRole(runId, roleVersionId);
+    for (const artifact of artifacts) this.content.verify(artifact.content_object_id);
+    const outputSchema = role.data.output_schema.data;
+    if (outputSchema !== null && typeof outputSchema === 'object' && !Array.isArray(outputSchema)
+      && Object.keys(outputSchema as Record<string, unknown>).length > 0) {
+      this.#validator.check(outputSchema as Parameters<ContractValidator['check']>[0], output.data);
+    }
+    const contract = role.data.completion_contract.data;
+    if (contract === null || typeof contract !== 'object' || Array.isArray(contract)) {
+      throw new Error('POLICY_VIOLATION: invalid frozen completion contract');
+    }
+    const value = contract as Record<string, unknown>;
+    const validateRequirements = (key: 'required_artifacts' | 'required_evidence', referenced: readonly string[]): void => {
+      const raw = value[key] ?? [];
+      if (!Array.isArray(raw)) throw new Error('POLICY_VIOLATION: invalid frozen completion contract');
+      const requirements = raw as CompletionRequirement[];
+      const selected = new Set(referenced);
+      for (const requirement of requirements) {
+        if (!requirement || typeof requirement.artifact_type !== 'string'
+          || !Number.isInteger(requirement.min_count) || requirement.min_count < 1) {
+          throw new Error('POLICY_VIOLATION: invalid frozen completion contract');
+        }
+        const count = artifacts.filter((artifact) => selected.has(artifact.content_object_id)
+          && artifact.artifact_type === requirement.artifact_type).length;
+        if (count < requirement.min_count) {
+          throw new Error(`POLICY_VIOLATION: completion contract requires ${requirement.min_count} ${key} of type ${requirement.artifact_type}`);
+        }
+      }
+    };
+    validateRequirements('required_artifacts', output.data.artifact_object_ids);
+    validateRequirements('required_evidence', output.data.evidence_object_ids);
   }
 
   private insertStageRun(runId: string, stage: WorkflowStage, iteration: number, status: 'queued' | 'ready', now: string): void {

@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
-import { connect } from 'node:net';
+import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -18,6 +18,64 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
+type JsonSocket = {
+  socket: Socket;
+  send: (value: unknown) => void;
+  read: () => Promise<Record<string, unknown>>;
+  close: () => Promise<void>;
+};
+
+async function openJsonSocket(socketPath: string): Promise<JsonSocket> {
+  const socket = connect(socketPath);
+  socket.setEncoding('utf8');
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+  let buffer = '';
+  const queued: Record<string, unknown>[] = [];
+  const readers: Array<(value: Record<string, unknown>) => void> = [];
+  socket.on('data', (chunk) => {
+    buffer += chunk;
+    let newline: number;
+    while ((newline = buffer.indexOf('\n')) >= 0) {
+      const value = JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>;
+      buffer = buffer.slice(newline + 1);
+      const reader = readers.shift();
+      if (reader === undefined) queued.push(value); else reader(value);
+    }
+  });
+  return {
+    socket,
+    send: (value) => socket.write(`${JSON.stringify(value)}\n`),
+    read: () => {
+      const value = queued.shift();
+      return value === undefined ? new Promise((resolve) => readers.push(resolve)) : Promise.resolve(value);
+    },
+    close: () => new Promise((resolve) => {
+      if (socket.destroyed) resolve();
+      else socket.end(resolve);
+    }),
+  };
+}
+
+async function bindRoot(
+  client: JsonSocket,
+  credential: string,
+  sessionId: string,
+  canonicalProjectPath: string,
+  channel: 'agent' | 'trusted_confirmation' = 'agent',
+): Promise<Record<string, unknown>> {
+  client.send({ kind: 'bootstrap', credential, channel, scope: 'root', canonical_project_path: canonicalProjectPath });
+  const challenge = await client.read();
+  const challengeValue = String(challenge['challenge']);
+  client.send({
+    kind: 'bind_root_session', challenge: challengeValue, session_id: sessionId,
+    proof: createHmac('sha256', credential).update(`${challengeValue}\0${sessionId}\0${canonicalProjectPath}`).digest('base64url'),
+  });
+  return client.read();
+}
+
 it('uses the isolated operation helper client over its private Unix socket', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'operation-client-'));
   directories.push(directory);
@@ -34,30 +92,7 @@ it('uses the isolated operation helper client over its private Unix socket', asy
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
-function readLines(socketPath: string, lines: unknown[]): Promise<Record<string, unknown>[]> {
-  return new Promise((resolve, reject) => {
-    const socket = connect(socketPath);
-    let buffer = '';
-    const responses: Record<string, unknown>[] = [];
-    socket.setEncoding('utf8');
-    socket.on('connect', () => socket.write(lines.map((line) => `${JSON.stringify(line)}\n`).join('')));
-    socket.on('data', (chunk) => {
-      buffer += chunk;
-      let newline: number;
-      while ((newline = buffer.indexOf('\n')) >= 0) {
-        responses.push(JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>);
-        buffer = buffer.slice(newline + 1);
-        if (responses.length === lines.length) {
-          socket.end();
-          resolve(responses);
-        }
-      }
-    });
-    socket.on('error', reject);
-  });
-}
-
-it('derives installation identity from credential, validates frames, and isolates confirmation channel', async () => {
+it('requires a challenged installation-level root binding and rejects unbound, subagent, and competing roots', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'control-socket-'));
   directories.push(directory);
   const db = openDatabase(join(directory, 'db.sqlite'));
@@ -88,25 +123,39 @@ it('derives installation identity from credential, validates frames, and isolate
   });
   expect(statSync(socketPath).mode & 0o777).toBe(0o600);
 
-  const agentResponses = await readLines(socketPath, [
-    { credential, channel: 'agent' },
-    { kind: 'tool', tool: 'heartbeat_run', lease_epoch: 1, lease_token: 'hidden', payload: { request_id: 'r', run_id: 'run' } },
-  ]);
-  expect(agentResponses).toEqual([{ authenticated: true }, { ok: true, result: { accepted: true } }]);
-  expect(dispatched[0]?.principal).toMatchObject({ installation_id: 'installation-a', session_id: 'installation-a:root' });
+  const subagent = await openJsonSocket(socketPath);
+  subagent.send({ kind: 'bootstrap', credential, channel: 'agent', scope: 'subagent', canonical_project_path: directory });
+  expect(await subagent.read()).toMatchObject({ ok: false, error: 'SUBAGENT_SCOPE_FORBIDDEN' });
+  await subagent.close();
 
-  const invalidResponses = await readLines(socketPath, [
-    { credential, channel: 'agent', installation_id: 'spoofed', root_session_id: 'spoofed' },
-  ]);
-  expect(invalidResponses[0]?.error).toMatch(/SCHEMA_INVALID/);
+  const root = await openJsonSocket(socketPath);
+  root.send({ kind: 'bootstrap', credential, channel: 'agent', scope: 'root', canonical_project_path: directory });
+  const challenge = await root.read();
+  expect(challenge).toMatchObject({ installation_id: 'installation-a', challenge: expect.any(String) });
+  root.send({ kind: 'tool', tool: 'heartbeat_run', lease_epoch: 1, lease_token: 'hidden', payload: { request_id: 'unbound', run_id: 'run' } });
+  expect(await root.read()).toMatchObject({ ok: false, error: 'ROOT_SESSION_NOT_BOUND' });
+  const challengeValue = String(challenge['challenge']);
+  root.send({ kind: 'bind_root_session', challenge: challengeValue, session_id: 'root-session-a', proof: createHmac('sha256', credential).update(`${challengeValue}\0root-session-a\0${directory}`).digest('base64url') });
+  expect(await root.read()).toEqual({ authenticated: true });
 
-  const privateResponses = await readLines(socketPath, [
-    { credential, channel: 'trusted_confirmation' },
-    { kind: 'submit_confirmation', payload: { confirmation_request_id: 'c', nonce: 'n', exact_action_hash: 'h', expires_at: now, decision: 'approve' } },
-  ]);
-  expect(privateResponses[1]).toMatchObject({ ok: true });
+  const competing = await openJsonSocket(socketPath);
+  expect(await bindRoot(competing, credential, 'root-session-b', directory)).toMatchObject({
+    ok: false, error: 'ROOT_SESSION_ALREADY_BOUND',
+  });
+
+  root.send({ kind: 'tool', tool: 'heartbeat_run', lease_epoch: 1, lease_token: 'hidden', payload: { request_id: 'r', run_id: 'run' } });
+  expect(await root.read()).toEqual({ ok: true, result: { accepted: true } });
+  expect(dispatched[0]?.principal).toMatchObject({ installation_id: 'installation-a', session_id: 'root-session-a', root_session_id: 'root-session-a', canonical_project_path: directory });
+
+  const privateClient = await openJsonSocket(socketPath);
+  expect(await bindRoot(privateClient, credential, 'root-session-a', directory, 'trusted_confirmation')).toEqual({ authenticated: true });
+  privateClient.send({ kind: 'submit_confirmation', payload: { confirmation_request_id: 'c', nonce: 'n', exact_action_hash: 'h', expires_at: now, decision: 'approve' } });
+  expect(await privateClient.read()).toMatchObject({ ok: true });
   expect(confirmations).toHaveLength(1);
 
+  await privateClient.close();
+  await competing.close();
+  await root.close();
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   db.close();
 });

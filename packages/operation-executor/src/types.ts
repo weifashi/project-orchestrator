@@ -1,11 +1,11 @@
 export type OperationDriver = {
   actionType: string;
   executable: string;
-  allowedParameterKeys: string[];
-  fixedArgs: string[];
+  allowedParameterKeys: readonly string[];
+  fixedArgs: readonly string[];
   timeoutMs: number;
   credentialFile?: string;
-  reconcileArgs?: string[];
+  reconcileArgs?: readonly string[];
 };
 export type OperationRequest =
   | { kind: 'execute'; actionType: string; targetFingerprint: string; parameters: Record<string, unknown> }

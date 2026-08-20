@@ -53,7 +53,7 @@ it('dispatches all nineteen capabilities to their server-owned service method', 
   const dispatcher = createControlDispatcher({
     db, runs, leases: {}, confirmations: {}, operations,
   } as never);
-  const principal = { installation_id: 'installation', root_session_id: 'root', session_id: 'root' };
+  const principal = { installation_id: 'installation', root_session_id: 'root', session_id: 'root', canonical_project_path: '/project' };
   for (const tool of AgentToolNames) {
     const request = (tool === 'create_run'
       ? { kind: 'tool', tool, payload: payloads[tool] }

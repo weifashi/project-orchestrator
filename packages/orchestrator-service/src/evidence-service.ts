@@ -3,7 +3,8 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { canonicalJson, type ContentStore } from '@project-orchestrator/content-store';
-import type { WorkspaceState } from './runtime-types.js';
+import { WorkspaceCheckpointRepository } from '@project-orchestrator/sqlite-store';
+import type { AuthenticatedAdapterContext, WorkspaceState } from './runtime-types.js';
 
 export const workspaceFingerprint = (state: WorkspaceState): string => createHash('sha256')
   .update(canonicalJson({
@@ -27,8 +28,27 @@ type ArtifactInput = {
   artifactType: 'document' | 'log' | 'test_evidence' | 'file_manifest' | 'ui_prototype' | 'deployment_record' | 'rollback_record' | 'other';
   summary: string;
   producerRoleVersionId: string;
+  adapterContext: AuthenticatedAdapterContext;
   metadata?: unknown;
 };
+
+function authenticatedProjectRoot(databasePath: string, adapterPath: string): string {
+  try {
+    if (!isAbsolute(databasePath) || !isAbsolute(adapterPath)) throw new Error('not absolute');
+    const databaseStats = lstatSync(databasePath);
+    const adapterStats = lstatSync(adapterPath);
+    if (databaseStats.isSymbolicLink() || adapterStats.isSymbolicLink()
+      || !databaseStats.isDirectory() || !adapterStats.isDirectory()) throw new Error('not canonical directories');
+    const databaseRoot = realpathSync(databasePath);
+    const adapterRoot = realpathSync(adapterPath);
+    if (databaseRoot !== resolve(databasePath) || adapterRoot !== resolve(adapterPath) || databaseRoot !== adapterRoot) {
+      throw new Error('path mismatch');
+    }
+    return databaseRoot;
+  } catch {
+    throw new Error('PROJECT_PATH_CHANGED: authenticated adapter project does not match run project');
+  }
+}
 
 export class EvidenceService {
   constructor(readonly db: Database.Database, readonly content: ContentStore) {}
@@ -40,14 +60,17 @@ export class EvidenceService {
       WHERE a.id=? AND r.id=?`).get(input.stageAttemptId, input.runId) as { canonical_path: string; role_version_id: string } | undefined;
     if (!ownership) throw new Error('POLICY_VIOLATION: attempt does not belong to run');
     if (ownership.role_version_id !== input.producerRoleVersionId) throw new Error('POLICY_VIOLATION: producer role mismatch');
-    const rootStats = lstatSync(ownership.canonical_path);
-    if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) throw new Error('POLICY_VIOLATION: invalid project root');
-    const root = realpathSync(ownership.canonical_path);
+    const root = authenticatedProjectRoot(ownership.canonical_path, input.adapterContext.canonicalProjectPath);
     const candidate = resolve(root, input.sourcePath);
     if (!within(root, candidate)) throw new Error('POLICY_VIOLATION: artifact outside project');
     let descriptor: number | undefined;
     try {
-      descriptor = openSync(candidate, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      try {
+        descriptor = openSync(candidate, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('ARTIFACT_MISSING: source file does not exist');
+        throw error;
+      }
       const descriptorStats = fstatSync(descriptor);
       const pathStats = lstatSync(candidate);
       if (!descriptorStats.isFile() || pathStats.isSymbolicLink() || !pathStats.isFile()) throw new Error('ARTIFACT_MISSING: not a regular file');
@@ -68,40 +91,44 @@ export class EvidenceService {
     }
   }
 
-  recordCheckpoint(input: { runId: string; stageAttemptId?: string; kind: 'run_start' | 'before_attempt' | 'progress' | 'after_attempt'; baselineFingerprint: string; state: WorkspaceState }): { id: string; fingerprint: string } {
-    const trusted = this.db.prepare(`SELECT resulting_fingerprint FROM workspace_checkpoints WHERE run_id=?
-      ORDER BY created_at DESC,id DESC LIMIT 1`).get(input.runId) as { resulting_fingerprint: string } | undefined;
-    const snapshot = this.db.prepare('SELECT working_tree_fingerprint FROM run_snapshots WHERE run_id=?')
-      .get(input.runId) as { working_tree_fingerprint: string } | undefined;
-    const expectedBaseline = trusted?.resulting_fingerprint ?? snapshot?.working_tree_fingerprint;
-    if (input.kind === 'run_start' && (trusted !== undefined || snapshot === undefined
-      || input.stageAttemptId !== undefined || input.baselineFingerprint !== snapshot.working_tree_fingerprint)) {
-      throw new Error('POLICY_VIOLATION: invalid run-start checkpoint');
-    }
-    if (input.kind !== 'run_start' && (trusted === undefined || expectedBaseline === undefined
-      || input.baselineFingerprint !== expectedBaseline)) {
-      throw new Error('WORKTREE_CHANGED: checkpoint baseline mismatch');
-    }
-    if (input.stageAttemptId !== undefined) {
-      const attempt = this.db.prepare(`SELECT a.status FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
-        WHERE a.id=? AND s.run_id=?`).get(input.stageAttemptId, input.runId) as { status: string } | undefined;
-      if (!attempt) throw new Error('POLICY_VIOLATION: checkpoint attempt does not belong to run');
-      if (input.kind === 'after_attempt' && attempt.status !== 'succeeded') throw new Error('POLICY_VIOLATION: after checkpoint requires succeeded attempt');
-    } else if (input.kind !== 'run_start' && input.kind !== 'progress') {
-      throw new Error('POLICY_VIOLATION: attempt checkpoint requires attempt');
-    }
-    const staged = this.content.putUtf8(input.state.stagedPatch);
-    const unstaged = this.content.putUtf8(input.state.unstagedPatch);
-    const untracked = this.content.putCanonicalJson(input.state.untrackedManifest);
-    const submodule = this.content.putCanonicalJson(input.state.submoduleManifest);
-    const fingerprint = workspaceFingerprint(input.state);
-    const id = randomUUID();
-    this.db.prepare(`INSERT INTO workspace_checkpoints
-      (id,run_id,stage_attempt_id,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,
-       staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,created_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(id, input.runId, input.stageAttemptId ?? null, input.kind, input.state.repositoryHead, input.baselineFingerprint,
-        fingerprint, staged.id, unstaged.id, untracked.id, submodule.id, new Date().toISOString());
-    return { id, fingerprint };
+  recordCheckpoint(input: { runId: string; stageAttemptId?: string; kind: 'run_start' | 'before_attempt' | 'progress' | 'after_attempt'; baselineFingerprint: string; state: WorkspaceState }): { id: string; fingerprint: string; sequence: number } {
+    const work = (): { id: string; fingerprint: string; sequence: number } => {
+      const checkpoints = new WorkspaceCheckpointRepository(this.db);
+      const trusted = checkpoints.latest(input.runId);
+      const snapshot = this.db.prepare('SELECT working_tree_fingerprint FROM run_snapshots WHERE run_id=?')
+        .get(input.runId) as { working_tree_fingerprint: string } | undefined;
+      const expectedBaseline = trusted?.resulting_fingerprint ?? snapshot?.working_tree_fingerprint;
+      if (input.kind === 'run_start' && (trusted !== undefined || snapshot === undefined
+        || input.stageAttemptId !== undefined || input.baselineFingerprint !== snapshot.working_tree_fingerprint)) {
+        throw new Error('POLICY_VIOLATION: invalid run-start checkpoint');
+      }
+      if (input.kind !== 'run_start' && (trusted === undefined || expectedBaseline === undefined
+        || input.baselineFingerprint !== expectedBaseline)) {
+        throw new Error('WORKTREE_CHANGED: checkpoint baseline mismatch');
+      }
+      if (input.stageAttemptId !== undefined) {
+        const attempt = this.db.prepare(`SELECT a.status FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
+          WHERE a.id=? AND s.run_id=?`).get(input.stageAttemptId, input.runId) as { status: string } | undefined;
+        if (!attempt) throw new Error('POLICY_VIOLATION: checkpoint attempt does not belong to run');
+        if (input.kind === 'after_attempt' && attempt.status !== 'succeeded') throw new Error('POLICY_VIOLATION: after checkpoint requires succeeded attempt');
+      } else if (input.kind !== 'run_start' && input.kind !== 'progress') {
+        throw new Error('POLICY_VIOLATION: attempt checkpoint requires attempt');
+      }
+      const staged = this.content.putUtf8(input.state.stagedPatch);
+      const unstaged = this.content.putUtf8(input.state.unstagedPatch);
+      const untracked = this.content.putCanonicalJson(input.state.untrackedManifest);
+      const submodule = this.content.putCanonicalJson(input.state.submoduleManifest);
+      const fingerprint = workspaceFingerprint(input.state);
+      const id = randomUUID();
+      const sequence = checkpoints.nextSequence(input.runId);
+      this.db.prepare(`INSERT INTO workspace_checkpoints
+        (id,run_id,sequence_number,stage_attempt_id,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,
+         staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+        .run(id, input.runId, sequence, input.stageAttemptId ?? null, input.kind, input.state.repositoryHead, input.baselineFingerprint,
+          fingerprint, staged.id, unstaged.id, untracked.id, submodule.id, new Date().toISOString());
+      return { id, fingerprint, sequence };
+    };
+    return this.db.inTransaction ? work() : this.db.transaction(work).immediate();
   }
 }

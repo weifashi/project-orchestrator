@@ -1,16 +1,18 @@
 import { chmodSync, rmSync } from 'node:fs';
+import { createHmac, randomBytes } from 'node:crypto';
 import { createServer, type Server, type Socket } from 'node:net';
 import { ContractValidator } from '@project-orchestrator/contracts';
 import {
-  AgentHandshakeSchema,
+  AgentBootstrapSchema,
+  AgentSessionBindingSchema,
   InternalConfirmationDecisionSchema,
   InternalIpcRequestSchema,
-  type AgentHandshake,
+  type AgentBootstrap,
   type InternalConfirmationDecision,
   type InternalIpcRequest,
   type InternalPrincipal,
 } from '@project-orchestrator/contracts/internal-ipc';
-import type { CredentialAuthenticator } from './principal.js';
+import { secureEqual, type AuthenticatedInstallation, type CredentialAuthenticator } from './principal.js';
 
 export type AgentDispatcher = (
   request: InternalIpcRequest,
@@ -30,6 +32,14 @@ type ListenerInput = {
 };
 
 type ConnectionState = { socket: Socket; pending: () => Promise<void> };
+type PendingBinding = {
+  installation: AuthenticatedInstallation;
+  channel: AgentBootstrap['channel'];
+  challenge: string;
+  credential: string;
+  canonicalProjectPath: string;
+};
+type RootBinding = { sessionId: string; connectionCount: number };
 const connectionStates = new WeakMap<Server, Set<ConnectionState>>();
 
 function errorMessage(error: unknown): string {
@@ -40,10 +50,13 @@ export function startAgentListener(input: ListenerInput): Promise<Server> {
   rmSync(input.socketPath, { force: true });
   const validator = new ContractValidator();
   const connections = new Set<ConnectionState>();
+  const installationRoots = new Map<string, RootBinding>();
   const server = createServer((socket) => {
     let buffer = '';
     let bound: InternalPrincipal | undefined;
-    let channel: AgentHandshake['channel'] | undefined;
+    let channel: AgentBootstrap['channel'] | undefined;
+    let awaitingBinding: PendingBinding | undefined;
+    let boundInstallationId: string | undefined;
     let processing = Promise.resolve();
     const state: ConnectionState = { socket, pending: () => processing };
     connections.add(state);
@@ -56,14 +69,45 @@ export function startAgentListener(input: ListenerInput): Promise<Server> {
       try {
         const parsed = JSON.parse(line) as unknown;
         if (bound === undefined) {
-          const handshake = validator.check(AgentHandshakeSchema, parsed);
-          const installation = input.authenticate(handshake.credential);
+          if (awaitingBinding === undefined) {
+            const bootstrap = validator.check(AgentBootstrapSchema, parsed);
+            if (bootstrap.scope !== 'root') throw new Error('SUBAGENT_SCOPE_FORBIDDEN');
+            const installation = input.authenticate(bootstrap.credential);
+            const challenge = randomBytes(32).toString('base64url');
+            awaitingBinding = {
+              installation, channel: bootstrap.channel, challenge, credential: bootstrap.credential,
+              canonicalProjectPath: bootstrap.canonical_project_path,
+            };
+            write({ installation_id: installation.installationId, challenge, algorithm: 'hmac-sha256' });
+            return;
+          }
+          if ((parsed as { kind?: unknown } | null)?.kind !== 'bind_root_session') {
+            throw new Error('ROOT_SESSION_NOT_BOUND');
+          }
+          const binding = validator.check(AgentSessionBindingSchema, parsed);
+          const pending = awaitingBinding;
+          if (!secureEqual(binding.challenge, pending.challenge)) throw new Error('ROOT_SESSION_PROOF_INVALID');
+          const expectedProof = createHmac('sha256', pending.credential)
+            .update(`${pending.challenge}\0${binding.session_id}\0${pending.canonicalProjectPath}`).digest('base64url');
+          if (!secureEqual(binding.proof, expectedProof)) throw new Error('ROOT_SESSION_PROOF_INVALID');
+          const existing = installationRoots.get(pending.installation.installationId);
+          if (existing !== undefined && existing.sessionId !== binding.session_id) {
+            throw new Error('ROOT_SESSION_ALREADY_BOUND');
+          }
+          if (existing === undefined) {
+            installationRoots.set(pending.installation.installationId, { sessionId: binding.session_id, connectionCount: 1 });
+          } else {
+            existing.connectionCount += 1;
+          }
           bound = Object.freeze({
-            installation_id: installation.installationId,
-            root_session_id: installation.rootSessionId,
-            session_id: installation.sessionId,
+            installation_id: pending.installation.installationId,
+            root_session_id: binding.session_id,
+            session_id: binding.session_id,
+            canonical_project_path: pending.canonicalProjectPath,
           });
-          channel = handshake.channel;
+          channel = pending.channel;
+          boundInstallationId = pending.installation.installationId;
+          awaitingBinding = undefined;
           write({ authenticated: true });
           return;
         }
@@ -95,7 +139,17 @@ export function startAgentListener(input: ListenerInput): Promise<Server> {
       if (Buffer.byteLength(buffer) > maxFrameBytes) socket.destroy(new Error('FRAME_TOO_LARGE'));
     });
     socket.on('error', () => undefined);
-    socket.once('close', () => connections.delete(state));
+    socket.once('close', () => {
+      connections.delete(state);
+      const installationId = boundInstallationId;
+      if (installationId === undefined) return;
+      void processing.finally(() => {
+        const root = installationRoots.get(installationId);
+        if (root === undefined) return;
+        root.connectionCount -= 1;
+        if (root.connectionCount === 0) installationRoots.delete(installationId);
+      });
+    });
   });
   connectionStates.set(server, connections);
   return new Promise((resolve, reject) => {

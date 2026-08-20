@@ -4,8 +4,6 @@ import type Database from 'better-sqlite3';
 export type AuthenticatedInstallation = Readonly<{
   installationId: string;
   clientType: 'codex' | 'claude';
-  rootSessionId: string;
-  sessionId: string;
 }>;
 export type CredentialAuthenticator = (credential: string) => AuthenticatedInstallation;
 
@@ -36,9 +34,8 @@ export function createCredentialAuthenticator(
     const installation = matches[0] as typeof matches[number];
     db.prepare('UPDATE client_installations SET last_seen_at=? WHERE id=?')
       .run(new Date().toISOString(), installation.id);
-    const rootSessionId = `${installation.id}:root`;
     return Object.freeze({
-      installationId: installation.id, clientType: installation.client_type, rootSessionId, sessionId: rootSessionId,
+      installationId: installation.id, clientType: installation.client_type,
     });
   };
 }

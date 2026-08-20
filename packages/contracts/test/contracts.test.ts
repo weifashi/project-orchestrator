@@ -5,6 +5,7 @@ import {
   CreateRunRequestEnvelopeSchema,
   AgentToolNames,
   MODEL_VISIBLE_TOOL_SCHEMAS,
+  RecordMemoryToolRequestSchema,
   MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS,
   StageOutputEnvelopeSchema,
   WorkflowVersionEnvelopeSchema,
@@ -101,7 +102,8 @@ describe('contract envelopes', () => {
     expect(Object.keys(INTERNAL_TOOL_REQUEST_SCHEMAS)).toEqual(AgentToolNames);
     for (const tool of AgentToolNames) {
       const visible = JSON.stringify(MODEL_VISIBLE_TOOL_SCHEMAS[tool]);
-      expect(visible, tool).not.toMatch(/lease_(token|epoch)|recovery_credential|principal|credential_hash|source_principal|sequence_number|decision/);
+      expect(visible, tool).not.toMatch(/lease_(token|epoch)|recovery_credential|principal|credential_hash|source_principal|sequence_number/);
+      if (tool !== 'record_memory') expect(visible, tool).not.toContain('decision');
       expect(JSON.stringify(INTERNAL_TOOL_REQUEST_SCHEMAS[tool]), tool).toContain(`"const":"${tool}"`);
     }
   });
@@ -121,5 +123,18 @@ describe('contract envelopes', () => {
         },
       },
     })).toThrow(/const/);
+  });
+
+  it('requires a stage and closed memory classification enums', () => {
+    const valid = {
+      request_id: 'request-1', run_id: 'run-1', stage_run_id: 'stage-1',
+      memory_type: 'decision', scope: 'project', title: 'Decision', summary: '',
+      content: { outcome: 'approved' }, retention_policy: 'keep',
+    };
+    expect(validator.check(RecordMemoryToolRequestSchema, valid)).toEqual(valid);
+    expect(() => validator.check(RecordMemoryToolRequestSchema, { ...valid, stage_run_id: undefined })).toThrow();
+    expect(() => validator.check(RecordMemoryToolRequestSchema, { ...valid, memory_type: 'arbitrary' })).toThrow();
+    expect(() => validator.check(RecordMemoryToolRequestSchema, { ...valid, scope: 'global' })).toThrow();
+    expect(() => validator.check(RecordMemoryToolRequestSchema, { ...valid, retention_policy: 'forever-ish' })).toThrow();
   });
 });

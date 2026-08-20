@@ -58,17 +58,21 @@ CREATE TABLE stage_attempts (
 );
 CREATE TABLE workspace_checkpoints (
  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+ sequence_number INTEGER NOT NULL CHECK(sequence_number > 0),
  stage_attempt_id TEXT REFERENCES stage_attempts(id) ON DELETE RESTRICT,
  checkpoint_kind TEXT NOT NULL CHECK(checkpoint_kind IN ('run_start','before_attempt','progress','after_attempt')),
  repository_head TEXT NOT NULL, baseline_fingerprint TEXT NOT NULL, resulting_fingerprint TEXT NOT NULL,
  staged_patch_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
  unstaged_patch_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
  untracked_manifest_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
- submodule_manifest_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT, created_at TEXT NOT NULL
+ submodule_manifest_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT, created_at TEXT NOT NULL,
+ UNIQUE(run_id,sequence_number)
 );
 CREATE TABLE confirmation_requests (
  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
- stage_run_id TEXT NOT NULL REFERENCES stage_runs(id) ON DELETE RESTRICT, confirmation_type TEXT NOT NULL CHECK(length(confirmation_type)>0),
+ stage_run_id TEXT NOT NULL REFERENCES stage_runs(id) ON DELETE RESTRICT,
+ stage_attempt_id TEXT NOT NULL REFERENCES stage_attempts(id) ON DELETE RESTRICT,
+ confirmation_type TEXT NOT NULL CHECK(length(confirmation_type)>0),
  request_summary TEXT NOT NULL, action_hash TEXT NOT NULL, nonce_hash TEXT NOT NULL,
  safety_baseline_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
  requested_installation_id TEXT NOT NULL REFERENCES client_installations(id) ON DELETE RESTRICT,
@@ -93,9 +97,12 @@ CREATE TABLE artifacts (
 );
 CREATE TABLE memories (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
- source_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT, memory_type TEXT NOT NULL, scope TEXT NOT NULL,
+ source_run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+ memory_type TEXT NOT NULL CHECK(memory_type IN ('decision','rule','fact','lesson','delivery_evidence')),
+ scope TEXT NOT NULL CHECK(scope IN ('project','run')),
  title TEXT NOT NULL, summary TEXT NOT NULL, content_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
- retention_policy TEXT NOT NULL, created_at TEXT NOT NULL
+ retention_policy TEXT NOT NULL CHECK(retention_policy IN ('keep','review','expire_after_run')), created_at TEXT NOT NULL,
+ UNIQUE(project_id,memory_type,content_object_id)
 );
 CREATE TABLE events (
  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
@@ -117,6 +124,7 @@ CREATE INDEX idx_snapshots_cas ON run_snapshots(workflow_object_id,role_bundle_o
 CREATE INDEX idx_artifacts_cas ON artifacts(content_object_id,artifact_type);
 CREATE INDEX idx_memories_cas ON memories(content_object_id);
 CREATE INDEX idx_checkpoints_cas ON workspace_checkpoints(staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id);
+CREATE INDEX idx_checkpoints_latest ON workspace_checkpoints(run_id,sequence_number DESC);
 CREATE UNIQUE INDEX idx_checkpoint_run_start ON workspace_checkpoints(run_id) WHERE checkpoint_kind='run_start';
 CREATE INDEX idx_attempt_manifests ON stage_attempts(artifact_manifest_object_id,evidence_manifest_object_id,changed_files_object_id);
 CREATE INDEX idx_operations_confirmation ON side_effect_operations(confirmation_request_id,status);
@@ -166,14 +174,24 @@ WHEN NEW.stage_attempt_id IS NOT NULL AND NOT EXISTS (
  SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
  WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id
 ) BEGIN SELECT RAISE(ABORT,'CHECKPOINT_OWNERSHIP'); END;
+CREATE TRIGGER checkpoint_sequence_insert BEFORE INSERT ON workspace_checkpoints
+WHEN NEW.sequence_number != COALESCE((
+ SELECT MAX(sequence_number)+1 FROM workspace_checkpoints WHERE run_id=NEW.run_id
+),1)
+BEGIN SELECT RAISE(ABORT,'CHECKPOINT_SEQUENCE'); END;
 CREATE TRIGGER confirmation_ownership_insert BEFORE INSERT ON confirmation_requests
-WHEN NOT EXISTS (SELECT 1 FROM stage_runs s WHERE s.id=NEW.stage_run_id AND s.run_id=NEW.run_id)
+WHEN NOT EXISTS (
+ SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
+ WHERE s.id=NEW.stage_run_id AND s.run_id=NEW.run_id AND a.id=NEW.stage_attempt_id
+   AND s.latest_attempt_id=a.id AND a.status='running'
+)
 BEGIN SELECT RAISE(ABORT,'CONFIRMATION_OWNERSHIP'); END;
 CREATE TRIGGER operation_ownership_insert BEFORE INSERT ON side_effect_operations
 WHEN NOT EXISTS (
  SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
  JOIN confirmation_requests c ON c.id=NEW.confirmation_request_id
- WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id AND c.run_id=NEW.run_id AND c.stage_run_id=s.id
+ WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id AND c.run_id=NEW.run_id
+   AND c.stage_run_id=s.id AND c.stage_attempt_id=a.id
 ) BEGIN SELECT RAISE(ABORT,'OPERATION_OWNERSHIP'); END;
 CREATE TRIGGER artifact_ownership_insert BEFORE INSERT ON artifacts
 WHEN NOT EXISTS (
@@ -200,6 +218,7 @@ CREATE TRIGGER immutable_memory BEFORE UPDATE ON memories BEGIN SELECT RAISE(ABO
 CREATE TRIGGER immutable_memory_delete BEFORE DELETE ON memories BEGIN SELECT RAISE(ABORT,'IMMUTABLE_MEMORY'); END;
 CREATE TRIGGER immutable_confirmation_identity BEFORE UPDATE ON confirmation_requests
 WHEN NEW.run_id!=OLD.run_id OR NEW.stage_run_id!=OLD.stage_run_id OR NEW.confirmation_type!=OLD.confirmation_type
+ OR NEW.stage_attempt_id!=OLD.stage_attempt_id
  OR NEW.action_hash!=OLD.action_hash OR NEW.nonce_hash!=OLD.nonce_hash OR NEW.safety_baseline_object_id!=OLD.safety_baseline_object_id
  OR NEW.requested_installation_id!=OLD.requested_installation_id OR NEW.requested_at!=OLD.requested_at OR NEW.expires_at!=OLD.expires_at
 BEGIN SELECT RAISE(ABORT,'IMMUTABLE_CONFIRMATION'); END;

@@ -19,6 +19,7 @@ type WebListenerInput = {
 
 export function buildWebListener(input: WebListenerInput): FastifyInstance {
   const app = Fastify({ logger: false });
+  const sessionCookie = Buffer.from(input.webToken, 'utf8').toString('base64url');
   app.addHook('onRequest', async (request, reply) => {
     const host = request.headers.host?.split(':')[0];
     if (host !== '127.0.0.1' && host !== 'localhost') return reply.code(403).send({ error: 'invalid host' });
@@ -29,16 +30,16 @@ export function buildWebListener(input: WebListenerInput): FastifyInstance {
     }
     const cookie = Object.fromEntries((request.headers.cookie ?? '').split(';')
       .map((part) => part.trim().split('=', 2) as [string, string]));
-    if (cookie['po_session'] !== input.webToken) return reply.code(403).send({ error: 'unauthorized' });
+    if (cookie['po_session'] !== sessionCookie) return reply.code(403).send({ error: 'unauthorized' });
     if (writes && request.headers['x-csrf-token'] !== input.csrfToken) {
       return reply.code(403).send({ error: 'csrf' });
     }
   });
   app.addHook('onSend', async (request, reply, payload) => {
     const authenticated = (request.headers.cookie ?? '').split(';')
-      .some((part) => part.trim() === `po_session=${input.webToken}`);
+      .some((part) => part.trim() === `po_session=${sessionCookie}`);
     if (authenticated && reply.statusCode < 400) {
-      reply.header('Set-Cookie', `po_session=${encodeURIComponent(input.webToken)}; HttpOnly; SameSite=Strict; Path=/`);
+      reply.header('Set-Cookie', `po_session=${sessionCookie}; HttpOnly; SameSite=Strict; Path=/`);
     }
     return payload;
   });

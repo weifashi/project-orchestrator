@@ -45,7 +45,8 @@ export class OperationService {
       const snapshot = this.db.prepare('SELECT safety_baseline_object_id FROM run_snapshots WHERE run_id=?')
         .get(input.proof.runId) as { safety_baseline_object_id: string };
       const confirmation = this.confirmations.request({
-        runId: input.proof.runId, stageRunId: ownership.stage_run_id, type: input.actionType, summary: input.summary,
+        runId: input.proof.runId, stageRunId: ownership.stage_run_id, stageAttemptId: input.stageAttemptId,
+        type: input.actionType, summary: input.summary,
         actionHash, safetyBaselineObjectId: snapshot.safety_baseline_object_id, installationId: input.principal.installationId,
         ...(input.ttlMs === undefined ? {} : { ttlMs: input.ttlMs }),
       });
@@ -56,6 +57,14 @@ export class OperationService {
         VALUES(?,?,?,?,?,?,?,?,?,'intent_recorded',?)`)
         .run(operationId, input.proof.runId, input.stageAttemptId, input.actionType, input.targetFingerprint,
           actionHash, canonicalJson(input.parameters), confirmation.id, input.proof.leaseEpoch, new Date().toISOString());
+      const now = new Date().toISOString();
+      const stageChanged = this.db.prepare("UPDATE stage_runs SET status='waiting_for_user',updated_at=? WHERE id=? AND run_id=? AND status='running'")
+        .run(now, ownership.stage_run_id, input.proof.runId);
+      const runChanged = this.db.prepare("UPDATE runs SET status='waiting_for_user',updated_at=? WHERE id=? AND status='running'")
+        .run(now, input.proof.runId);
+      if (stageChanged.changes !== 1 || runChanged.changes !== 1) {
+        throw new Error('INVALID_TRANSITION: operation confirmation cannot enter waiting state');
+      }
       this.events.append(input.proof.runId, 'side_effect_prepared', 'server', { operationId }, ownership.stage_run_id);
       this.idem.complete(begun.id, { prepared: true, operationId, confirmationRequestId: confirmation.id });
       return { operationId, actionHash, confirmationRequestId: confirmation.id, nonce: confirmation.nonce, expiresAt: confirmation.expiresAt };
@@ -116,17 +125,31 @@ export class OperationService {
       return { operation, idempotencyId: idempotency.id } as const;
     }).immediate();
     if ('replay' in prepared) return prepared.replay;
-    const result = await this.helper.reconcile?.({
-      operationId: prepared.operation.id, actionType: prepared.operation.action_type, targetFingerprint: prepared.operation.target_fingerprint,
-      ...(prepared.operation.external_reference === null ? {} : { externalReference: prepared.operation.external_reference }),
-    });
-    if (!result) throw new Error('POLICY_VIOLATION: driver cannot reconcile');
+    let result: OperationExecutionResult;
+    try {
+      result = await this.helper.reconcile!({
+        operationId: prepared.operation.id, actionType: prepared.operation.action_type, targetFingerprint: prepared.operation.target_fingerprint,
+        ...(prepared.operation.external_reference === null ? {} : { externalReference: prepared.operation.external_reference }),
+      });
+    } catch (error) {
+      this.db.transaction(() => this.idem.fail(prepared.idempotencyId, {
+        code: 'OPERATION_RECONCILE_FAILED',
+        message: error instanceof Error ? error.message : 'operation helper failure',
+      })).immediate();
+      throw error;
+    }
     return this.db.transaction(() => {
-      this.freezeEvidence(prepared.operation, result);
-      if (result.status === 'succeeded') this.db.prepare(`UPDATE side_effect_operations SET status='reconciled',external_reference=?,completed_at=?
-        WHERE id=? AND status='unknown'`).run(result.externalReference ?? null, new Date().toISOString(), prepared.operation.id);
-      this.events.append(prepared.operation.run_id, 'side_effect_reconciled', 'server',
-        { operationId: prepared.operation.id, status: result.status });
+      const current = this.getOperation(prepared.operation.id);
+      if (current.status !== 'unknown') throw new Error('INVALID_TRANSITION: operation no longer unknown');
+      this.freezeEvidence(current, result);
+      if (result.status === 'succeeded') {
+        this.db.prepare(`UPDATE side_effect_operations SET status='reconciled',external_reference=?,completed_at=?
+          WHERE id=? AND status='unknown'`).run(result.externalReference ?? null, new Date().toISOString(), current.id);
+        this.events.append(current.run_id, 'side_effect_reconciled', 'server', { operationId: current.id });
+      } else {
+        this.events.append(current.run_id, 'side_effect_unknown', 'server',
+          { operationId: current.id, reason: 'reconcile_inconclusive' });
+      }
       this.idem.complete(prepared.idempotencyId, result);
       return result;
     }).immediate();

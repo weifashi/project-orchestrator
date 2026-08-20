@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { once } from 'node:events';
@@ -69,7 +69,7 @@ it('keeps SSE open, resumes after Last-Event-ID, and streams newly appended even
   const address=app.server.address();
   if(address===null||typeof address==='string')throw new Error('listener unavailable');
   const abort=new AbortController();
-  const response=await fetch(`http://127.0.0.1:${address.port}/api/stream/events?run_id=run`,{headers:{cookie:'po_session=web','last-event-id':'1',origin:'http://127.0.0.1'},signal:abort.signal});
+  const response=await fetch(`http://127.0.0.1:${address.port}/api/stream/events?run_id=run`,{headers:{cookie:`po_session=${Buffer.from('web').toString('base64url')}`,'last-event-id':'1',origin:'http://127.0.0.1'},signal:abort.signal});
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toContain('text/event-stream');
   const reader=response.body!.getReader();
@@ -92,6 +92,6 @@ it('awaits SIGTERM shutdown and removes the accepting Agent socket before exit',
   const socketPath=join(directory,'control.sock');
   const child=spawn(process.execPath,['apps/control-server/dist/main.js'],{cwd:process.cwd(),env:{...process.env,PROJECT_ORCHESTRATOR_DATA:directory,PROJECT_ORCHESTRATOR_DB:databasePath,PROJECT_ORCHESTRATOR_OBJECTS:join(directory,'objects'),PROJECT_ORCHESTRATOR_SOCKET:socketPath,PROJECT_ORCHESTRATOR_OPERATION_SOCKET:join(directory,'operations.sock'),PROJECT_ORCHESTRATOR_WEB_TOKEN_FILE:webTokenPath,PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE:adapterPath,PROJECT_ORCHESTRATOR_PORT:'0'},stdio:['ignore','pipe','pipe']});
   const deadline=Date.now()+5_000;while(!existsSync(socketPath)&&Date.now()<deadline)await new Promise((resolve)=>setTimeout(resolve,20));
-  expect(existsSync(socketPath)).toBe(true);const adapter=connect(socketPath);adapter.setEncoding('utf8');await once(adapter,'connect');adapter.write(`${JSON.stringify({credential,channel:'agent'})}\n`);await once(adapter,'data');child.kill('SIGTERM');const [code,signal]=await once(child,'exit') as [number|null,NodeJS.Signals|null];
+  expect(existsSync(socketPath)).toBe(true);const adapter=connect(socketPath);adapter.setEncoding('utf8');await once(adapter,'connect');adapter.write(`${JSON.stringify({kind:'bootstrap',credential,channel:'agent',scope:'root',canonical_project_path:directory})}\n`);const [challengeChunk]=await once(adapter,'data') as [string];const challenge=JSON.parse(challengeChunk.trim()) as {challenge:string};adapter.write(`${JSON.stringify({kind:'bind_root_session',challenge:challenge.challenge,session_id:'root',proof:createHmac('sha256',credential).update(`${challenge.challenge}\0root\0${directory}`).digest('base64url')})}\n`);await once(adapter,'data');child.kill('SIGTERM');const [code,signal]=await once(child,'exit') as [number|null,NodeJS.Signals|null];
   expect({code,signal}).toEqual({code:0,signal:null});expect(existsSync(socketPath)).toBe(false);
 });

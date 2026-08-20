@@ -15,6 +15,10 @@ it('claims a retryable failed run and creates its next attempt atomically', () =
     const content = new ContentStore(join(directory, 'objects'), db);
     const now = new Date().toISOString();
     const object = content.putCanonicalJson({});
+    const roleObject = content.putCanonicalJson({ schema_id: 'project-orchestrator/role-version', schema_version: 1,
+      data: { slug: 'role', display_name: 'Role', responsibilities: ['work'], requested_capabilities: [], forbidden_capabilities: [],
+        input_schema: { schema_id: 'role/input', schema_version: 1, data: {} }, output_schema: { schema_id: 'role/output', schema_version: 1, data: {} },
+        completion_contract: { schema_id: 'role/completion', schema_version: 1, data: {} }, body_markdown: '# Role' } });
     const workflow = content.putCanonicalJson({
       schema_id: 'project-orchestrator/workflow-version', schema_version: 1,
       data: {
@@ -30,12 +34,12 @@ it('claims a retryable failed run and creates its next attempt atomically', () =
       .run(directory, now, now);
     db.prepare("INSERT INTO roles(id,slug,name,status,created_at,updated_at) VALUES('role','role','Role','active',?,?)").run(now, now);
     db.prepare("INSERT INTO role_versions(id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status) VALUES('role-v1','role',1,?,'h','{}','{}','[]','[]','[]','{}',?,'published')")
-      .run(object.id, now);
+      .run(roleObject.id, now);
     db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('template','retry','Retry','feature','active',?,?)")
       .run(now, now);
     db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('workflow-v1','template',1,'',1,?,'h',?)")
       .run(workflow.id, now);
-    const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const };
+    const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const, canonicalProjectPath: directory };
     const workspace = { repositoryHead: 'head', stagedPatch: '', unstagedPatch: '', untrackedManifest: [], submoduleManifest: [] };
     const service = new RunService(db, content, new LeaseService(db, 7, 60_000));
     const created = service.createRun({ requestId: 'create', projectId: 'project', workflowVersionId: 'workflow-v1', objective: 'retry', runInput: {}, principal, workspace });

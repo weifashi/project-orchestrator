@@ -12,6 +12,13 @@ export type AgentToolName = typeof AgentToolNames[number];
 
 export type VisibleWriteContext = Readonly<{ run_id: string; request_id: string }>;
 
+export const MEMORY_TYPES = ['decision', 'rule', 'fact', 'lesson', 'delivery_evidence'] as const;
+export const MEMORY_SCOPES = ['project', 'run'] as const;
+export const MEMORY_RETENTION_POLICIES = ['keep', 'review', 'expire_after_run'] as const;
+export type MemoryType = typeof MEMORY_TYPES[number];
+export type MemoryScope = typeof MEMORY_SCOPES[number];
+export type MemoryRetentionPolicy = typeof MEMORY_RETENTION_POLICIES[number];
+
 const Id = () => Type.String({ minLength: 1 });
 const Request = () => ({ request_id: Id() });
 const RunRequest = () => ({ ...Request(), run_id: Id() });
@@ -67,8 +74,11 @@ export const RecordWorkspaceCheckpointToolRequestSchema = closed({
   baseline_fingerprint: Id(), workspace: WorkspaceStateSchema,
 });
 export const RecordMemoryToolRequestSchema = closed({
-  ...RunRequest(), memory_type: Id(), scope: Id(), title: Id(), summary: Type.String(),
-  content: Type.Unknown(), retention_policy: Id(),
+  ...StageRequest(),
+  memory_type: Type.Union(MEMORY_TYPES.map((value) => Type.Literal(value))),
+  scope: Type.Union(MEMORY_SCOPES.map((value) => Type.Literal(value))),
+  title: Id(), summary: Type.String(), content: Type.Unknown(),
+  retention_policy: Type.Union(MEMORY_RETENTION_POLICIES.map((value) => Type.Literal(value))),
 });
 export const AppendAgentNoteToolRequestSchema = closed({
   ...RunRequest(), note: Type.String({ minLength: 1, maxLength: 4096 }),

@@ -13,25 +13,27 @@ const matches = (value: string, expected: string): boolean => {
 };
 
 type ConfirmationRow = {
-  id: string; run_id: string; stage_run_id: string; status: string; expires_at: string; action_hash: string;
+  id: string; run_id: string; stage_run_id: string; stage_attempt_id: string; status: string; expires_at: string; action_hash: string;
   nonce_hash: string; requested_installation_id: string;
 };
 
 export class ConfirmationService {
   constructor(readonly db: Database.Database, readonly events = new EventRepository(db), readonly content?: ContentStore) {}
 
-  request(input: { runId: string; stageRunId: string; type: string; summary: string; actionHash: string; safetyBaselineObjectId: string; installationId: string; ttlMs?: number }): { id: string; nonce: string; expiresAt: string } {
-    const stage = this.db.prepare('SELECT 1 FROM stage_runs WHERE id=? AND run_id=?').get(input.stageRunId, input.runId);
+  request(input: { runId: string; stageRunId: string; stageAttemptId: string; type: string; summary: string; actionHash: string; safetyBaselineObjectId: string; installationId: string; ttlMs?: number }): { id: string; nonce: string; expiresAt: string } {
+    const stage = this.db.prepare(`SELECT 1 FROM stage_runs s JOIN stage_attempts a ON a.id=s.latest_attempt_id
+      WHERE s.id=? AND s.run_id=? AND s.status='running' AND a.id=? AND a.status='running'`)
+      .get(input.stageRunId, input.runId, input.stageAttemptId);
     if (!stage) throw new Error('POLICY_VIOLATION: confirmation stage does not belong to run');
     const id = randomUUID();
     const nonce = randomBytes(32).toString('base64url');
     const requestedAt = new Date();
     const expiresAt = new Date(requestedAt.getTime() + (input.ttlMs ?? 300_000)).toISOString();
     this.db.prepare(`INSERT INTO confirmation_requests
-      (id,run_id,stage_run_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,
+      (id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,
        requested_installation_id,status,requested_at,expires_at)
-      VALUES(?,?,?,?,?,?,?,?,?,'pending',?,?)`)
-      .run(id, input.runId, input.stageRunId, input.type, input.summary, input.actionHash, hash(nonce),
+      VALUES(?,?,?,?,?,?,?,?,?,?,'pending',?,?)`)
+      .run(id, input.runId, input.stageRunId, input.stageAttemptId, input.type, input.summary, input.actionHash, hash(nonce),
         input.safetyBaselineObjectId, input.installationId, requestedAt.toISOString(), expiresAt);
     this.events.append(input.runId, 'confirmation_requested', 'server', { confirmationRequestId: id }, input.stageRunId);
     return { id, nonce, expiresAt };
@@ -93,8 +95,9 @@ export class ConfirmationService {
     const now = new Date().toISOString();
     const latest = this.db.prepare('SELECT latest_attempt_id,stage_key FROM stage_runs WHERE id=? AND run_id=?')
       .get(row.stage_run_id, row.run_id) as { latest_attempt_id: string | null; stage_key: string } | undefined;
-    if (latest?.latest_attempt_id) this.db.prepare(`UPDATE stage_attempts SET status='failed',failure_code='USER_REJECTED',
-      failure_summary='User rejected confirmation',completed_at=? WHERE id=? AND status='running'`).run(now, latest.latest_attempt_id);
+    this.db.prepare(`UPDATE stage_attempts SET status='failed',failure_code='USER_REJECTED',
+      failure_summary='User rejected confirmation',completed_at=? WHERE id=? AND stage_run_id=? AND status='running'`)
+      .run(now, row.stage_attempt_id, row.stage_run_id);
     this.db.prepare("UPDATE stage_runs SET status='failed',completed_at=?,updated_at=? WHERE id=? AND status='waiting_for_user'")
       .run(now, now, row.stage_run_id);
     let target: 'paused' | 'cancelled' = 'paused';
@@ -106,8 +109,33 @@ export class ConfirmationService {
         target = policy === 'pause' ? 'paused' : 'cancelled';
       }
     }
-    this.db.prepare(`UPDATE runs SET status=?,lease_token_hash=NULL,lease_expires_at=NULL,lease_holder_session_id=NULL,
-      completed_at=CASE WHEN ?='cancelled' THEN ? ELSE completed_at END,updated_at=?
-      WHERE id=? AND status IN ('running','waiting_for_user')`).run(target, target, now, now, row.run_id);
+    if (target === 'cancelled') {
+      this.db.prepare(`UPDATE stage_attempts SET status='interrupted',failure_code='RUN_CANCELLED',
+        failure_summary='Run cancelled after confirmation rejection',completed_at=? WHERE status='running'
+        AND stage_run_id IN (SELECT id FROM stage_runs WHERE run_id=? AND id<>?)`)
+        .run(now, row.run_id, row.stage_run_id);
+      this.db.prepare(`UPDATE stage_runs SET status='cancelled',updated_at=?,completed_at=?
+        WHERE run_id=? AND id<>? AND status IN ('queued','ready','running','waiting_for_user')`)
+        .run(now, now, row.run_id, row.stage_run_id);
+      this.db.prepare(`UPDATE runs SET status='cancelled',lease_token_hash=NULL,lease_expires_at=NULL,
+        lease_holder_session_id=NULL,completed_at=?,updated_at=?
+        WHERE id=? AND status IN ('running','waiting_for_user')`).run(now, now, row.run_id);
+      this.events.append(row.run_id, 'run_cancelled', 'server', { reason: 'confirmation_rejected' });
+      return;
+    }
+    const peers = this.db.prepare(`SELECT id FROM stage_runs WHERE run_id=? AND id<>?
+      AND status IN ('running','waiting_for_user') ORDER BY stage_key,id`).all(row.run_id, row.stage_run_id) as Array<{ id: string }>;
+    for (const peer of peers) {
+      this.db.prepare(`UPDATE stage_attempts SET status='interrupted',failure_code='RUN_PAUSED',
+        failure_summary='Run paused after confirmation rejection',completed_at=? WHERE stage_run_id=? AND status='running'`)
+        .run(now, peer.id);
+      this.db.prepare(`UPDATE stage_runs SET status='interrupted',updated_at=?,completed_at=?
+        WHERE id=? AND status IN ('running','waiting_for_user')`).run(now, now, peer.id);
+      this.events.append(row.run_id, 'stage_interrupted', 'server', { reason: 'confirmation_rejected_pause' }, peer.id);
+    }
+    this.db.prepare(`UPDATE runs SET status='paused',lease_token_hash=NULL,lease_expires_at=NULL,
+      lease_holder_session_id=NULL,updated_at=? WHERE id=? AND status IN ('running','waiting_for_user')`)
+      .run(now, row.run_id);
+    this.events.append(row.run_id, 'run_paused', 'server', { reason: 'confirmation_rejected' });
   }
 }

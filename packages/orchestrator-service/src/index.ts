@@ -5,5 +5,6 @@ export * from './lease-service.js';
 export * from './run-service.js';
 export * from './evidence-service.js';
 export * from './recovery-service.js';
+export * from './memory-service.js';
 export * from './confirmation-service.js';
 export * from './operation-service.js';

@@ -9,8 +9,8 @@ export function deriveFrontier(workflow:WorkflowVersionEnvelope['data'], project
  for(const stage of workflow.stages){ const p=current.get(stage.key); if(p?.status==='waiting_for_user'){result.waitingForUser.push(stage.key);continue;} if(p && p.status!=='queued'&&p.status!=='ready')continue;
   const incoming=workflow.edges.filter((edge)=>edge.to===stage.key); const unsatisfied:string[]=[];
   for(const edge of incoming){const source=current.get(edge.from)?.status;
-   if(source===undefined||['queued','ready','running','waiting_for_user'].includes(source)){unsatisfied.push(edge.from);continue;}
    if(!evaluateCondition(edge.condition,context))continue;
+   if(source===undefined||['queued','ready','running','waiting_for_user'].includes(source)){unsatisfied.push(edge.from);continue;}
    if(edge.edge_type==='on_success'?source!=='succeeded':!['succeeded','skipped'].includes(source))unsatisfied.push(edge.from);
   }
   if(unsatisfied.length>0){result.blocked.push({stageKey:stage.key,reason:`dependencies:${unsatisfied.join(',')}`});continue;}
