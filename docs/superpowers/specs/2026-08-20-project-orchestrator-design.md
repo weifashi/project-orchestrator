@@ -1,6 +1,6 @@
 # 跨 Codex / Claude 多角色项目编排系统设计
 
-- 状态：待用户复核
+- 状态：用户已确认，进入实施
 - 日期：2026-08-20
 - 原型：`/home/weifashi/www/project_orchestrator/index.html`
 - 首版平台：Linux、macOS
