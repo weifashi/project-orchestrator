@@ -41,6 +41,7 @@ it('claims a retryable failed run and creates its next attempt atomically', () =
       .run(workflow.id, now);
     const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const, canonicalProjectPath: directory };
     const workspace = { repositoryHead: 'head', stagedPatch: '', unstagedPatch: '', untrackedManifest: [], submoduleManifest: [] };
+    db.pragma('user_version = 7');
     const service = new RunService(db, content, new LeaseService(db, 7, 60_000));
     const created = service.createRun({ requestId: 'create', projectId: 'project', workflowVersionId: 'workflow-v1', objective: 'retry', runInput: {}, principal, workspace });
     const firstLease = service.claimRun({ requestId: 'claim', runId: created.runId, mode: 'start', expectedStatus: 'created', expectedLeaseEpoch: 0, principal });

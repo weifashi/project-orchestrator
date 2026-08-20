@@ -29,6 +29,7 @@ describe('run lifecycle', () => {
       db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','wt',1,'',1,?,'0000000000000000000000000000000000000000000000000000000000000000',?)").run(workflowObject.id, now);
       const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const, canonicalProjectPath: dir };
       const workspace = { repositoryHead: 'head', stagedPatch: '', unstagedPatch: '', untrackedManifest: [], submoduleManifest: [] };
+      db.pragma('user_version = 1');
       const leases = new LeaseService(db, 1, 60_000), service = new RunService(db, content, leases);
       const request = { requestId: 'create', projectId: 'project', workflowVersionId: 'wv', objective: 'ship', runInput: { x: 1 }, principal, workspace };
       const created = service.createRun(request);

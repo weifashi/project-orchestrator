@@ -13,6 +13,10 @@ export type ClaimedLease = Readonly<{ leaseEpoch: number; leaseToken: string; re
 export class LeaseService {
   constructor(readonly db: Database.Database, readonly serverEpoch: number = Date.now(), readonly ttlMs = 30_000) {}
 
+  private assertCurrentServerEpoch(): void {
+    if (this.db.pragma('user_version', { simple: true }) !== this.serverEpoch) throw new Error('STALE_LEASE');
+  }
+
   claim(input: {
     runId: string;
     principal: AdapterPrincipal;
@@ -21,6 +25,7 @@ export class LeaseService {
     expectedLeaseEpoch: number;
     recoveryCredential?: string;
   }): ClaimedLease {
+    this.assertCurrentServerEpoch();
     if (input.principal.sessionId !== input.principal.rootSessionId) throw new Error('POLICY_VIOLATION: subagent cannot claim run');
     const run = this.db.prepare('SELECT * FROM runs WHERE id=?').get(input.runId) as {
       client_installation_id: string; origin_client_type: string; status: string; lease_epoch: number;
@@ -53,6 +58,7 @@ export class LeaseService {
   }
 
   validate(proof: LeaseProof, principal: AdapterPrincipal): void {
+    this.assertCurrentServerEpoch();
     if (principal.sessionId !== principal.rootSessionId) throw new Error('POLICY_VIOLATION: subagent write rejected');
     const run = this.db.prepare('SELECT * FROM runs WHERE id=?').get(proof.runId) as {
       client_installation_id: string; origin_client_type: string; lease_holder_session_id: string | null;

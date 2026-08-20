@@ -17,6 +17,7 @@ type OperationRow = {
   id: string; run_id: string; stage_attempt_id: string; action_type: string; target_fingerprint: string;
   request_hash: string; parameters_envelope: string; confirmation_request_id: string; status: string; external_reference: string | null;
 };
+type ReconciliationAttempt = { id: string; roleVersionId: string };
 
 export class OperationService {
   readonly events: EventRepository;
@@ -107,7 +108,7 @@ export class OperationService {
     return this.db.transaction(() => {
       const current = this.getOperation(begun.operation.id);
       if (current.status !== 'executing') throw new Error('INVALID_TRANSITION: operation no longer executing');
-      this.freezeEvidence(current, result);
+      this.freezeEvidence(current, result, this.requireReconciliationAttempt(current));
       this.db.prepare(`UPDATE side_effect_operations SET status=?,external_reference=?,completed_at=?
         WHERE id=? AND status='executing'`).run(result.status, result.externalReference ?? null, new Date().toISOString(), current.id);
       this.events.append(current.run_id, result.status === 'succeeded' ? 'side_effect_succeeded' : 'side_effect_unknown',
@@ -126,7 +127,7 @@ export class OperationService {
       if (idempotency.kind === 'replay') return { replay: idempotency.response as OperationExecutionResult } as const;
       const operation = this.getOperation(input.operationId);
       if (operation.run_id !== input.proof.runId || operation.status !== 'unknown') throw new Error('INVALID_TRANSITION: only owned unknown operation may reconcile');
-      this.requireAttempt(operation.stage_attempt_id, operation.run_id, 'running');
+      this.requireReconciliationAttempt(operation);
       if (!this.helper.reconcile) throw new Error('POLICY_VIOLATION: driver cannot reconcile');
       return { operation, idempotencyId: idempotency.id } as const;
     }).immediate();
@@ -145,9 +146,11 @@ export class OperationService {
       throw error;
     }
     return this.db.transaction(() => {
+      this.leases.validate(input.proof, input.principal);
       const current = this.getOperation(prepared.operation.id);
       if (current.status !== 'unknown') throw new Error('INVALID_TRANSITION: operation no longer unknown');
-      this.freezeEvidence(current, result);
+      const evidenceAttempt = this.requireReconciliationAttempt(current);
+      this.freezeEvidence(current, result, evidenceAttempt);
       if (result.status === 'succeeded') {
         this.db.prepare(`UPDATE side_effect_operations SET status='reconciled',external_reference=?,completed_at=?
           WHERE id=? AND status='unknown'`).run(result.externalReference ?? null, new Date().toISOString(), current.id);
@@ -161,16 +164,43 @@ export class OperationService {
     }).immediate();
   }
 
-  private freezeEvidence(operation: OperationRow, result: OperationExecutionResult): void {
+  private freezeEvidence(
+    operation: OperationRow,
+    result: OperationExecutionResult,
+    evidenceAttempt: ReconciliationAttempt,
+  ): void {
     const object = this.content.putCanonicalJson(result.evidence);
-    const ownership = this.requireAttempt(operation.stage_attempt_id, operation.run_id);
     this.db.prepare(`INSERT INTO artifacts
       (id,run_id,stage_attempt_id,artifact_type,content_object_id,source_path,summary,producer_role_version_id,metadata_envelope,created_at)
       VALUES(?,?,?,?,?,NULL,?,?,?,?)`)
-      .run(randomUUID(), operation.run_id, operation.stage_attempt_id,
+      .run(randomUUID(), operation.run_id, evidenceAttempt.id,
         result.status === 'succeeded' ? 'deployment_record' : 'log', object.id,
-        `Managed operation ${operation.action_type} ${result.status}`, ownership.role_version_id,
-        canonicalJson({ operationId: operation.id, externalReference: result.externalReference ?? null }), new Date().toISOString());
+        `Managed operation ${operation.action_type} ${result.status}`, evidenceAttempt.roleVersionId,
+        canonicalJson({ operationId: operation.id, sourceAttemptId: operation.stage_attempt_id,
+          externalReference: result.externalReference ?? null }), new Date().toISOString());
+  }
+
+  private requireReconciliationAttempt(operation: OperationRow): ReconciliationAttempt {
+    const row = this.db.prepare(`SELECT source.status AS source_status,source.attempt_number AS source_attempt_number,
+        stage.status AS stage_status,stage.latest_attempt_id,stage.role_version_id,
+        latest.status AS latest_status,latest.attempt_number AS latest_attempt_number
+      FROM stage_attempts source JOIN stage_runs stage ON stage.id=source.stage_run_id
+      LEFT JOIN stage_attempts latest ON latest.id=stage.latest_attempt_id AND latest.stage_run_id=stage.id
+      WHERE source.id=? AND stage.run_id=?`).get(operation.stage_attempt_id, operation.run_id) as {
+        source_status: string; source_attempt_number: number; stage_status: string; latest_attempt_id: string | null;
+        role_version_id: string; latest_status: string | null; latest_attempt_number: number | null;
+      } | undefined;
+    if (!row) throw new Error('POLICY_VIOLATION: attempt does not belong to run');
+    const sourceIsCurrent = row.latest_attempt_id === operation.stage_attempt_id && row.source_status === 'running';
+    const interruptedRetryIsCurrent = row.source_status === 'interrupted'
+      && row.latest_attempt_id !== operation.stage_attempt_id
+      && row.latest_attempt_number !== null
+      && row.latest_attempt_number > row.source_attempt_number;
+    if (row.stage_status !== 'running' || row.latest_attempt_id === null || row.latest_status !== 'running'
+      || (!sourceIsCurrent && !interruptedRetryIsCurrent)) {
+      throw new Error('INVALID_TRANSITION: operation has no current running reconciliation attempt');
+    }
+    return { id: row.latest_attempt_id, roleVersionId: row.role_version_id };
   }
 
   private requireAttempt(id: string, runId: string, status?: string): { stage_run_id: string; role_version_id: string; status: string } {

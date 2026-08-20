@@ -72,6 +72,7 @@ function fixture(input: {
     .run(workflowObject.id, now);
   const principal = { installationId: 'install', sessionId: 'root', rootSessionId: 'root', clientType: 'codex' as const, canonicalProjectPath: directory };
   const workspace = { repositoryHead: 'head', stagedPatch: '', unstagedPatch: '', untrackedManifest: [], submoduleManifest: [] };
+  db.pragma('user_version = 17');
   const leases = new LeaseService(db, 17, 60_000);
   const confirmations = new ConfirmationService(db, undefined, content);
   const service = new RunService(db, content, leases);

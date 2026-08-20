@@ -17,6 +17,7 @@ function fixture(helper: OperationHelper, managedOperationExecution = true) {
   f.db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES('run','project','wv','','{}','codex','install','root','created',?)").run(f.now);
   f.db.prepare(`INSERT INTO run_snapshots(run_id,workflow_object_id,role_bundle_object_id,rule_bundle_object_id,safety_baseline_object_id,adapter_capability_object_id,repository_head,staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,working_tree_fingerprint,created_at)
     VALUES('run',?,?,?,?,?,'head',?,?,?,?,? ,?)`).run(f.object.id, f.object.id, f.object.id, f.object.id, capability.id, f.object.id, f.object.id, f.object.id, f.object.id, 'fp', f.now);
+  f.db.pragma('user_version = 1');
   const leases = new LeaseService(f.db, 1, 60_000);
   const lease = leases.claim({ runId: 'run', principal, mode: 'start', expectedStatus: 'created', expectedLeaseEpoch: 0 });
   const proof = { runId: 'run', leaseEpoch: lease.leaseEpoch, leaseToken: lease.leaseToken };
@@ -131,6 +132,6 @@ it('refuses to reconcile an unknown operation after its attempt is already succe
     evidence_manifest_object_id=?,changed_files_object_id=?,completed_at=? WHERE id='attempt' AND status='running'`)
     .run(f.object.id, f.object.id, f.object.id, f.now);
   await expect(f.operations.reconcile({ requestId: 'reconcile', proof: f.proof, principal,
-    operationId: prepared.operationId })).rejects.toThrow('attempt state');
+    operationId: prepared.operationId })).rejects.toThrow('no current running reconciliation attempt');
   f.db.close();
 });

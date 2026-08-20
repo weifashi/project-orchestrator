@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { connect, createServer } from 'node:net';
 import { afterEach, expect, it } from 'vitest';
 import { ContentStore } from '@project-orchestrator/content-store';
-import { buildWebListener, interruptExpiredLeases, prepareRuntimeStartup } from '@project-orchestrator/control-server';
+import { buildWebListener, interruptExpiredLeases, prepareRuntimeStartup, startControlServer } from '@project-orchestrator/control-server';
+import { LeaseService } from '@project-orchestrator/orchestrator-service';
 import { EventRepository, migrate, openDatabase } from '@project-orchestrator/sqlite-store';
 
 const directories: string[] = [];
@@ -66,6 +67,8 @@ it('derives server epoch from the maximum fenced run and emits deterministic int
   expect(prepareRuntimeStartup(db)).toBe(2);
   db.prepare("UPDATE runs SET server_epoch=7 WHERE id='run'").run();
   expect(prepareRuntimeStartup(db)).toBe(8);
+  expect(db.pragma('application_id', { simple: true })).toBe(0x504f5243);
+  expect(db.pragma('user_version', { simple: true })).toBe(8);
   expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_metadata'").get()).toBeUndefined();
   expect(db.prepare("SELECT status,lease_token_hash FROM runs WHERE id='run'").get()).toEqual({ status: 'interrupted', lease_token_hash: null });
   expect(db.prepare("SELECT status FROM stage_attempts WHERE id='attempt'").get()).toEqual({ status: 'interrupted' });
@@ -77,6 +80,57 @@ it('derives server epoch from the maximum fenced run and emits deterministic int
   expect(db.prepare("SELECT count(*) AS count FROM side_effect_operations WHERE run_id='run' AND status='abandoned'").get())
     .toEqual({ count: 2 });
   db.close();
+});
+
+it('persists and increments server epoch across consecutive idle startups', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'startup-epoch-'));
+  directories.push(directory);
+  const path = join(directory, 'db.sqlite');
+  const first = openDatabase(path);
+  migrate(first);
+  expect(prepareRuntimeStartup(first)).toBe(1);
+  first.close();
+
+  const second = openDatabase(path);
+  migrate(second);
+  expect(prepareRuntimeStartup(second)).toBe(2);
+  expect(second.pragma('user_version', { simple: true })).toBe(2);
+  expect(second.prepare('SELECT count(*) AS count FROM runs').get()).toEqual({ count: 0 });
+  second.close();
+});
+
+it('fences an older runtime before it can claim after a concurrent startup', () => {
+  const { db } = runtimeFixture();
+  db.prepare(`UPDATE runs SET status='created',lease_epoch=0,server_epoch=0,lease_token_hash=NULL,
+    lease_expires_at=NULL,lease_holder_session_id=NULL`).run();
+  const firstEpoch = prepareRuntimeStartup(db);
+  const oldRuntime = new LeaseService(db, firstEpoch, 60_000);
+  expect(prepareRuntimeStartup(db)).toBe(firstEpoch + 1);
+  expect(() => oldRuntime.claim({ runId: 'run', principal: { installationId: 'install', sessionId: 'root',
+    rootSessionId: 'root', clientType: 'codex', canonicalProjectPath: '' }, mode: 'start', expectedStatus: 'created',
+    expectedLeaseEpoch: 0 })).toThrow('STALE_LEASE');
+  db.close();
+});
+
+it('rejects a foreign SQLite application id before writing migrations', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'startup-foreign-db-'));
+  directories.push(directory);
+  const databasePath = join(directory, 'foreign.sqlite');
+  const foreign = openDatabase(databasePath);
+  foreign.exec('CREATE TABLE foreign_data(id INTEGER PRIMARY KEY)');
+  foreign.pragma('application_id = 123');
+  foreign.close();
+
+  await expect(startControlServer({
+    dataDirectory: directory, databasePath, objectsPath: join(directory, 'objects'),
+    controlSocketPath: join(directory, 'control.sock'), operationSocketPath: join(directory, 'operation.sock'),
+    webHost: '127.0.0.1', webPort: 0, webToken: 'web', csrfToken: 'csrf', adapterCredential: 'adapter',
+    allowedOrigin: 'http://127.0.0.1', maxFrameBytes: 256 * 1024,
+  })).rejects.toThrow('DATABASE_APPLICATION_ID_MISMATCH');
+  const reopened = openDatabase(databasePath);
+  expect(reopened.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all())
+    .toEqual([{ name: 'foreign_data' }]);
+  reopened.close();
 });
 
 it('interrupts an expired heartbeat lease with the same ordered audit trail', () => {

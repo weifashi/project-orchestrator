@@ -237,8 +237,10 @@ export class RunService {
       if (definition.requires_confirmation && !this.hasConsumedConfirmation(input.proof.runId, stage.id, attempt.id)) {
         throw new Error('POLICY_VIOLATION: consumed confirmation required for current attempt');
       }
-      if (this.db.prepare(`SELECT 1 FROM side_effect_operations WHERE run_id=? AND stage_attempt_id=?
-        AND status IN ('intent_recorded','executing','unknown') LIMIT 1`).get(input.proof.runId, attempt.id)) {
+      if (this.db.prepare(`SELECT 1 FROM side_effect_operations operation
+        JOIN stage_attempts source ON source.id=operation.stage_attempt_id
+        WHERE operation.run_id=? AND source.stage_run_id=?
+          AND operation.status IN ('intent_recorded','executing','unknown') LIMIT 1`).get(input.proof.runId, stage.id)) {
         throw new Error('SIDE_EFFECT_OPERATION_UNRESOLVED');
       }
       const output = this.#validator.check(SucceededStageOutputEnvelopeSchema, input.output) as StageOutputEnvelope;

@@ -30,6 +30,15 @@ export type ControlRuntime = Readonly<{
 }>;
 
 type InterruptibleRun = { id: string; status: string };
+const RUNTIME_APPLICATION_ID = 0x504f5243;
+const MAX_SQLITE_HEADER_INTEGER = 0x7fffffff;
+
+export function assertRuntimeDatabaseIdentity(db: Database.Database): void {
+  const applicationId = db.pragma('application_id', { simple: true }) as number;
+  if (applicationId !== 0 && applicationId !== RUNTIME_APPLICATION_ID) {
+    throw new Error('DATABASE_APPLICATION_ID_MISMATCH');
+  }
+}
 
 function interruptRuns(
   db: Database.Database,
@@ -64,7 +73,14 @@ function interruptRuns(
 export function prepareRuntimeStartup(db: Database.Database): number {
   const events = new EventRepository(db);
   return db.transaction(() => {
-    const epochRow = db.prepare('SELECT COALESCE(MAX(server_epoch),0)+1 AS value FROM runs').get() as { value: number };
+    assertRuntimeDatabaseIdentity(db);
+    const applicationId = db.pragma('application_id', { simple: true }) as number;
+    if (applicationId === 0) db.pragma(`application_id = ${RUNTIME_APPLICATION_ID}`);
+    const storedEpoch = db.pragma('user_version', { simple: true }) as number;
+    const runEpoch = db.prepare('SELECT COALESCE(MAX(server_epoch),0) AS value FROM runs').get() as { value: number };
+    const serverEpoch = Math.max(storedEpoch, runEpoch.value) + 1;
+    if (serverEpoch > MAX_SQLITE_HEADER_INTEGER) throw new Error('SERVER_EPOCH_EXHAUSTED');
+    db.pragma(`user_version = ${serverEpoch}`);
     const now = new Date().toISOString();
     const activeRuns = db.prepare("SELECT id,status FROM runs WHERE status IN ('running','waiting_for_user') ORDER BY id")
       .all() as Array<{ id: string; status: string }>;
@@ -76,7 +92,7 @@ export function prepareRuntimeStartup(db: Database.Database): number {
       events.append(operation.run_id, 'side_effect_unknown', 'system', { operationId: operation.id, reason: 'server_restart' });
     }
     interruptRuns(db, events, activeRuns, 'server_restart', now);
-    return epochRow.value;
+    return serverEpoch;
   }).immediate();
 }
 
@@ -91,6 +107,12 @@ export function interruptExpiredLeases(db: Database.Database, now = new Date()):
 
 export async function startControlServer(config: ControlConfig = loadConfig()): Promise<ControlRuntime> {
   const db = openDatabase(config.databasePath);
+  try {
+    assertRuntimeDatabaseIdentity(db);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   migrate(db);
   const content = new ContentStore(config.objectsPath, db);
   for (const row of db.prepare('SELECT id FROM content_objects').all() as Array<{ id: string }>) content.verify(row.id);
