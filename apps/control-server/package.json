@@ -15,6 +15,7 @@
     "@project-orchestrator/contracts": "workspace:*",
     "@project-orchestrator/orchestrator-service": "workspace:*",
     "@project-orchestrator/sqlite-store": "workspace:*",
+    "@fastify/static": "^8.2.0",
     "fastify": "^5.6.2"
   },
   "devDependencies": {
