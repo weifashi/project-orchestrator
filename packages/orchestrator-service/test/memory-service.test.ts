@@ -4,6 +4,7 @@ import { MemoryService } from '../src/index.js';
 import { runtimeFixture } from './runtime-fixture.js';
 
 const clean: string[] = [];
+const HASH = 'a'.repeat(64);
 afterEach(() => clean.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
 
 function seed(f: ReturnType<typeof runtimeFixture>, roleSlug: string, effectiveCapabilities: string[] = []) {
@@ -14,9 +15,9 @@ function seed(f: ReturnType<typeof runtimeFixture>, roleSlug: string, effectiveC
   f.db.prepare(`INSERT INTO role_versions
     (id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,
      requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status)
-    VALUES('memory-role-v1','memory-role',1,?,'h','{}','{}','[]',?,'[]','{}',?,'published')`)
-    .run(envelope.id, JSON.stringify(effectiveCapabilities), f.now);
-  f.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,'h',?)").run(f.object.id, f.now);
+    VALUES('memory-role-v1','memory-role',1,?,?,'{}','{}','[]',?,'[]','{}',?,'published')`)
+    .run(envelope.id, HASH, JSON.stringify(effectiveCapabilities), f.now);
+  f.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,?,?)").run(f.object.id, HASH, f.now);
   f.db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES('run','project','wv','','{}','codex','install','root','running',?)").run(f.now);
   f.db.prepare("INSERT INTO stage_runs(id,run_id,stage_key,role_version_id,status,max_attempts,created_at,updated_at) VALUES('memory-stage','run','memory','memory-role-v1','running',1,?,?)").run(f.now, f.now);
   f.db.prepare(`INSERT INTO run_snapshots

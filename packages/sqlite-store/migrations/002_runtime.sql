@@ -4,7 +4,6 @@ CREATE TABLE client_installations (
  credential_hash TEXT NOT NULL CHECK(length(credential_hash)=64 AND credential_hash NOT GLOB '*[^0-9a-f]*'), status TEXT NOT NULL CHECK(status IN ('active','disabled','revoked')), last_seen_at TEXT NOT NULL,
  UNIQUE(client_type,id)
 );
-CREATE TABLE runtime_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE projects (
  id TEXT PRIMARY KEY, canonical_path TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
  repository_fingerprint TEXT NOT NULL, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
@@ -73,7 +72,9 @@ CREATE TABLE confirmation_requests (
  stage_run_id TEXT NOT NULL REFERENCES stage_runs(id) ON DELETE RESTRICT,
  stage_attempt_id TEXT NOT NULL REFERENCES stage_attempts(id) ON DELETE RESTRICT,
  confirmation_type TEXT NOT NULL CHECK(length(confirmation_type)>0),
- request_summary TEXT NOT NULL, action_hash TEXT NOT NULL, nonce_hash TEXT NOT NULL,
+ request_summary TEXT NOT NULL,
+ action_hash TEXT NOT NULL CHECK(length(action_hash)=64 AND action_hash NOT GLOB '*[^0-9a-f]*'),
+ nonce_hash TEXT NOT NULL CHECK(length(nonce_hash)=64 AND nonce_hash NOT GLOB '*[^0-9a-f]*'),
  safety_baseline_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
  requested_installation_id TEXT NOT NULL REFERENCES client_installations(id) ON DELETE RESTRICT,
  status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','expired','consumed')),
@@ -83,7 +84,9 @@ CREATE TABLE confirmation_requests (
 CREATE TABLE side_effect_operations (
  id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
  stage_attempt_id TEXT NOT NULL REFERENCES stage_attempts(id) ON DELETE RESTRICT, action_type TEXT NOT NULL,
- target_fingerprint TEXT NOT NULL, request_hash TEXT NOT NULL, parameters_envelope TEXT NOT NULL CHECK(json_valid(parameters_envelope)),
+ target_fingerprint TEXT NOT NULL,
+ request_hash TEXT NOT NULL CHECK(length(request_hash)=64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
+ parameters_envelope TEXT NOT NULL CHECK(json_valid(parameters_envelope)),
  confirmation_request_id TEXT NOT NULL UNIQUE REFERENCES confirmation_requests(id) ON DELETE RESTRICT,
  lease_epoch INTEGER NOT NULL CHECK(lease_epoch > 0), status TEXT NOT NULL CHECK(status IN ('intent_recorded','executing','succeeded','unknown','reconciled','abandoned')),
  external_reference TEXT, created_at TEXT NOT NULL, started_at TEXT, completed_at TEXT
@@ -111,7 +114,8 @@ CREATE TABLE events (
  UNIQUE(run_id,sequence_number)
 );
 CREATE TABLE idempotency_requests (
- id TEXT PRIMARY KEY, principal_id TEXT NOT NULL, operation TEXT NOT NULL, request_id TEXT NOT NULL, request_hash TEXT NOT NULL,
+ id TEXT PRIMARY KEY, principal_id TEXT NOT NULL, operation TEXT NOT NULL, request_id TEXT NOT NULL,
+ request_hash TEXT NOT NULL CHECK(length(request_hash)=64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
  response_envelope TEXT CHECK(response_envelope IS NULL OR json_valid(response_envelope)), error_envelope TEXT CHECK(error_envelope IS NULL OR json_valid(error_envelope)), status TEXT NOT NULL CHECK(status IN ('in_progress','completed','failed')), created_at TEXT NOT NULL,
  UNIQUE(principal_id,operation,request_id)
 );
@@ -130,6 +134,14 @@ CREATE INDEX idx_attempt_manifests ON stage_attempts(artifact_manifest_object_id
 CREATE INDEX idx_operations_confirmation ON side_effect_operations(confirmation_request_id,status);
 CREATE TRIGGER immutable_attempt AFTER UPDATE ON stage_attempts
 WHEN OLD.status != 'running' BEGIN SELECT RAISE(ABORT,'IMMUTABLE_ATTEMPT'); END;
+CREATE TRIGGER successful_attempt_evidence_insert BEFORE INSERT ON stage_attempts
+WHEN NEW.status='succeeded' AND (NEW.output_envelope IS NULL OR NEW.artifact_manifest_object_id IS NULL
+ OR NEW.evidence_manifest_object_id IS NULL OR NEW.changed_files_object_id IS NULL OR NEW.completed_at IS NULL)
+BEGIN SELECT RAISE(ABORT,'ATTEMPT_EVIDENCE_REQUIRED'); END;
+CREATE TRIGGER successful_attempt_evidence_update BEFORE UPDATE OF status ON stage_attempts
+WHEN NEW.status='succeeded' AND (NEW.output_envelope IS NULL OR NEW.artifact_manifest_object_id IS NULL
+ OR NEW.evidence_manifest_object_id IS NULL OR NEW.changed_files_object_id IS NULL OR NEW.completed_at IS NULL)
+BEGIN SELECT RAISE(ABORT,'ATTEMPT_EVIDENCE_REQUIRED'); END;
 CREATE TRIGGER immutable_attempt_identity BEFORE UPDATE ON stage_attempts
 WHEN NEW.stage_run_id IS NOT OLD.stage_run_id OR NEW.attempt_number IS NOT OLD.attempt_number
  OR NEW.input_envelope IS NOT OLD.input_envelope OR NEW.started_at IS NOT OLD.started_at
@@ -174,6 +186,19 @@ WHEN NEW.stage_attempt_id IS NOT NULL AND NOT EXISTS (
  SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
  WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id
 ) BEGIN SELECT RAISE(ABORT,'CHECKPOINT_OWNERSHIP'); END;
+CREATE TRIGGER checkpoint_state_insert BEFORE INSERT ON workspace_checkpoints
+WHEN (NEW.checkpoint_kind='run_start' AND (NEW.stage_attempt_id IS NOT NULL OR NEW.sequence_number!=1))
+ OR (NEW.checkpoint_kind!='run_start' AND NEW.stage_attempt_id IS NULL)
+ OR (NEW.checkpoint_kind!='run_start' AND EXISTS (
+   SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
+   WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id
+ ) AND NOT EXISTS (
+   SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
+   WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id AND s.latest_attempt_id=a.id
+     AND ((NEW.checkpoint_kind IN ('before_attempt','progress') AND a.status='running' AND s.status='running')
+       OR (NEW.checkpoint_kind='after_attempt' AND a.status='succeeded' AND s.status='succeeded'))
+ ))
+BEGIN SELECT RAISE(ABORT,'CHECKPOINT_STATE'); END;
 CREATE TRIGGER checkpoint_sequence_insert BEFORE INSERT ON workspace_checkpoints
 WHEN NEW.sequence_number != COALESCE((
  SELECT MAX(sequence_number)+1 FROM workspace_checkpoints WHERE run_id=NEW.run_id
@@ -198,6 +223,16 @@ WHEN NOT EXISTS (
  SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
  WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id AND s.role_version_id=NEW.producer_role_version_id
 ) BEGIN SELECT RAISE(ABORT,'ARTIFACT_OWNERSHIP'); END;
+CREATE TRIGGER artifact_state_insert BEFORE INSERT ON artifacts
+WHEN EXISTS (
+ SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
+ WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id AND s.role_version_id=NEW.producer_role_version_id
+) AND NOT EXISTS (
+ SELECT 1 FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
+ WHERE a.id=NEW.stage_attempt_id AND s.run_id=NEW.run_id AND s.role_version_id=NEW.producer_role_version_id
+   AND s.latest_attempt_id=a.id AND a.status='running' AND s.status='running'
+)
+BEGIN SELECT RAISE(ABORT,'ARTIFACT_STATE'); END;
 CREATE TRIGGER event_ownership_insert BEFORE INSERT ON events
 WHEN NEW.stage_run_id IS NOT NULL AND NOT EXISTS (
  SELECT 1 FROM stage_runs s WHERE s.id=NEW.stage_run_id AND s.run_id=NEW.run_id

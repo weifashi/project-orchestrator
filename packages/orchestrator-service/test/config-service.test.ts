@@ -69,6 +69,15 @@ describe('configuration service', () => {
     db.close();
   });
 
+  it('rejects publishing a role whose output schema is not valid JSON Schema', () => {
+    const { db, repository, service } = fixture();
+    repository.createRole({ id: 'role', slug: 'role', name: 'Role' });
+    const envelope = roleEnvelope('role');
+    envelope.data.output_schema.data = { type: 'definitely-not-a-json-schema-type' };
+    expect(() => service.publishRole({ roleId: 'role', envelope })).toThrow('SCHEMA_INVALID');
+    db.close();
+  });
+
   it('rejects an unsupported safety baseline version', () => {
     const { db, repository, content } = fixture();
     expect(() => new ConfigService(repository, content, { safetyBaselineVersion: 999 }))

@@ -8,3 +8,4 @@ export * from './recovery-service.js';
 export * from './memory-service.js';
 export * from './confirmation-service.js';
 export * from './operation-service.js';
+export * from './capability-service.js';

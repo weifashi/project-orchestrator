@@ -9,6 +9,7 @@ import {
   MODEL_VISIBLE_WRITE_ENVELOPE_SCHEMAS,
   StageOutputEnvelopeSchema,
   WorkflowVersionEnvelopeSchema,
+  HostCapabilityManifestSchema,
 } from '../src/index.js';
 import { INTERNAL_TOOL_REQUEST_SCHEMAS } from '../src/internal-ipc.js';
 
@@ -136,5 +137,16 @@ describe('contract envelopes', () => {
     expect(() => validator.check(RecordMemoryToolRequestSchema, { ...valid, memory_type: 'arbitrary' })).toThrow();
     expect(() => validator.check(RecordMemoryToolRequestSchema, { ...valid, scope: 'global' })).toThrow();
     expect(() => validator.check(RecordMemoryToolRequestSchema, { ...valid, retention_policy: 'forever-ish' })).toThrow();
+  });
+
+  it('requires an exact, strictly typed host capability manifest', () => {
+    const capability = {
+      clientType: 'codex', adapterVersion: '1', trustedRootSessionIdentity: true,
+      parallelSubagentIsolation: false, trustedInteractiveConfirmation: true,
+      managedOperationExecution: false,
+    };
+    expect(validator.check(HostCapabilityManifestSchema, capability)).toEqual(capability);
+    expect(() => validator.check(HostCapabilityManifestSchema, { ...capability, managedOperationExecution: 'yes' })).toThrow();
+    expect(() => validator.check(HostCapabilityManifestSchema, { ...capability, executable: '/bin/sh' })).toThrow();
   });
 });

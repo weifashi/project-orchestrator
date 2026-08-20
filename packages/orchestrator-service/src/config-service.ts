@@ -77,6 +77,7 @@ export class ConfigService {
 
   publishRole(input: PublishRoleInput): PublishedVersion {
     const envelope = this.#validator.check(RoleVersionEnvelopeSchema, input.envelope) as RoleVersionEnvelope;
+    this.#validator.assertJsonSchema(envelope.data.output_schema.data);
     canonicalJson(envelope);
     const role = this.#repository.getRole(input.roleId);
     if (role === undefined || role.status !== 'active') throw new Error(`NOT_FOUND: active role ${input.roleId}`);

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { migrate, openDatabase } from '../src/index.js';
 
 const directories: string[] = [];
+const HASH = 'a'.repeat(64);
 
 afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { force: true, recursive: true });
@@ -31,23 +32,23 @@ describe('foundation migration', () => {
     migrate(db);
     const now = new Date().toISOString();
     db.prepare('INSERT INTO content_objects(id,sha256,media_type,size_bytes,storage_key,created_at) VALUES(?,?,?,?,?,?)')
-      .run('object-1', 'same', 'text/plain', 1, 'aa/same', now);
+      .run('object-1', HASH, 'text/plain', 1, 'aa/same', now);
     expect(() => db.prepare('INSERT INTO content_objects(id,sha256,media_type,size_bytes,storage_key,created_at) VALUES(?,?,?,?,?,?)')
-      .run('object-2', 'same', 'text/plain', 1, 'bb/same', now)).toThrow(/UNIQUE/);
+      .run('object-2', HASH, 'text/plain', 1, 'bb/same', now)).toThrow(/UNIQUE/);
 
     for (const id of ['workflow-1', 'workflow-2']) {
       db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")
         .run(id, id, id, 'feature', 'active', now, now);
     }
     db.prepare('INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES(?,?,?,?,?,?,?,?)')
-      .run('version-1', 'workflow-1', 1, '', 1, 'object-1', 'same', now);
+      .run('version-1', 'workflow-1', 1, '', 1, 'object-1', HASH, now);
     expect(() => db.prepare('UPDATE workflow_templates SET current_version_id=? WHERE id=?').run('version-1', 'workflow-2'))
       .toThrow(/CURRENT_VERSION_OWNERSHIP/);
     expect(() => db.prepare('DELETE FROM content_objects WHERE id=?').run('object-1')).toThrow(/FOREIGN KEY/);
     expect(() => db.prepare('INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES(?,?,?,?,?,?,?,?)')
-      .run('version-2', 'workflow-1', 1, '', 1, 'object-1', 'same', now)).toThrow(/UNIQUE/);
+      .run('version-2', 'workflow-1', 1, '', 1, 'object-1', HASH, now)).toThrow(/UNIQUE/);
     expect(() => db.prepare('INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES(?,?,?,?,?,?,?,?)')
-      .run('unsupported-baseline', 'workflow-1', 2, '', 999, 'object-1', 'same', now)).toThrow(/CHECK/);
+      .run('unsupported-baseline', 'workflow-1', 2, '', 999, 'object-1', HASH, now)).toThrow(/CHECK/);
     expect(() => db.prepare('DELETE FROM workflow_versions WHERE id=?').run('version-1')).toThrow(/IMMUTABLE_VERSION/);
 
     for (const id of ['role-1', 'role-2']) {
@@ -58,7 +59,7 @@ describe('foundation migration', () => {
       (id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,
        requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run('role-version-1', 'role-1', 1, 'object-1', 'same', '{}', '{}', '[]', '[]', '[]', '{}', now, 'published');
+      .run('role-version-1', 'role-1', 1, 'object-1', HASH, '{}', '{}', '[]', '[]', '[]', '{}', now, 'published');
     expect(() => db.prepare('UPDATE roles SET current_version_id=? WHERE id=?').run('role-version-1', 'role-2'))
       .toThrow(/CURRENT_VERSION_OWNERSHIP/);
     expect(() => db.prepare('DELETE FROM role_versions WHERE id=?').run('role-version-1')).toThrow(/IMMUTABLE_VERSION/);

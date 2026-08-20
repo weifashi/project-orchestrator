@@ -1,7 +1,14 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { ServerResponse } from 'node:http';
 import type { EventRepository } from '@project-orchestrator/sqlite-store';
 
-export function streamEvents(events: EventRepository, pollIntervalMs = 100): (
+export type EventStreamConnections = Set<ServerResponse>;
+
+export function closeEventStreams(connections: EventStreamConnections): void {
+  for (const response of [...connections]) response.end();
+}
+
+export function streamEvents(events: EventRepository, pollIntervalMs = 100, connections?: EventStreamConnections): (
   request: FastifyRequest,
   reply: FastifyReply,
 ) => Promise<unknown> {
@@ -24,6 +31,7 @@ export function streamEvents(events: EventRepository, pollIntervalMs = 100): (
       'X-Accel-Buffering': 'no',
     });
     reply.raw.flushHeaders();
+    connections?.add(reply.raw);
     let after = afterHeader;
     let closed = false;
     const flush = (): void => {
@@ -43,6 +51,7 @@ export function streamEvents(events: EventRepository, pollIntervalMs = 100): (
       closed = true;
       clearInterval(poll);
       clearInterval(heartbeat);
+      connections?.delete(reply.raw);
     };
     request.raw.once('aborted', close);
     reply.raw.once('close', close);

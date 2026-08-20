@@ -8,15 +8,21 @@ import { Worker } from 'node:worker_threads';
 import { afterEach, expect, it } from 'vitest';
 import { EventRepository, IdempotencyRepository, WorkspaceCheckpointRepository, migrate, openDatabase } from '../src/index.js';
 const dirs: string[] = [];
+const HASH = 'a'.repeat(64);
 afterEach(() => dirs.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
 function seeded() {
   const directory = mkdtempSync(join(tmpdir(), 'runtime-repositories-')); dirs.push(directory); const path = join(directory, 'db'); const db = openDatabase(path); migrate(db); const now = new Date().toISOString();
-  db.prepare("INSERT INTO content_objects(id,sha256,media_type,size_bytes,storage_key,created_at) VALUES('o','h','application/json',2,'h/h',?)").run(now);
+  db.prepare("INSERT INTO content_objects(id,sha256,media_type,size_bytes,storage_key,created_at) VALUES('o',?,'application/json',2,'h/h',?)").run(HASH, now);
   db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('wt','w','W','feature','active',?,?)").run(now, now);
-  db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','wt',1,'',1,'o','h',?)").run(now);
+  db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','wt',1,'',1,'o',?,?)").run(HASH, now);
+  db.prepare("INSERT INTO roles(id,slug,name,status,created_at,updated_at) VALUES('r','r','R','active',?,?)").run(now, now);
+  db.prepare("INSERT INTO role_versions(id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status) VALUES('rv','r',1,'o',?,'{}','{}','[]','[]','[]','{}',?,'published')").run(HASH, now);
   db.prepare("INSERT INTO client_installations(id,client_type,adapter_version,capability_object_id,credential_hash,status,last_seen_at) VALUES('i','codex','1','o',?,'active',?)").run(createHash('sha256').update('x').digest('hex'), now);
   db.prepare("INSERT INTO projects(id,canonical_path,display_name,repository_fingerprint,created_at,last_seen_at) VALUES('p','/tmp/p','P','f',?,?)").run(now, now);
   db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES('run','p','wv','','{}','codex','i','root','running',?)").run(now);
+  db.prepare("INSERT INTO stage_runs(id,run_id,stage_key,role_version_id,status,max_attempts,created_at,updated_at) VALUES('stage','run','stage','rv','running',1,?,?)").run(now, now);
+  db.prepare("INSERT INTO stage_attempts(id,stage_run_id,attempt_number,status,input_envelope,started_at) VALUES('attempt','stage',1,'running','{}',?)").run(now);
+  db.prepare("UPDATE stage_runs SET latest_attempt_id='attempt' WHERE id='stage'").run();
   return { db, path };
 }
 const storeUrl = pathToFileURL(join(process.cwd(), 'packages/sqlite-store/dist/index.js')).href;
@@ -31,7 +37,7 @@ function repositoryWorker(path: string, action: 'event' | 'idempotency-holder' |
         parentPort.postMessage({ ok: true, sequence: event.sequenceNumber });
         db.close();
       } else {
-        const result = new IdempotencyRepository(db).begin('i', 'worker-op', 'worker-request', 'same-hash');
+        const result = new IdempotencyRepository(db).begin('i', 'worker-op', 'worker-request', '${HASH}');
         parentPort.postMessage({ ok: true, kind: result.kind });
         if (workerData.action === 'idempotency-holder' && result.kind === 'new') {
           parentPort.once('message', () => { db.close(); process.exit(0); });
@@ -58,11 +64,12 @@ it('allocates gap-free events across connections without MAX and rolls back busi
 });
 it('replays identical idempotency requests and conflicts on a different hash across connections', () => {
   const { db, path } = seeded(); const second = openDatabase(path); const one = new IdempotencyRepository(db); const two = new IdempotencyRepository(second);
-  const begun = one.begin('i', 'op', 'request', 'hash-a'); expect(begun.kind).toBe('new');
-  expect(() => two.begin('i', 'op', 'request', 'hash-a')).toThrow('IN_PROGRESS');
-  expect(() => two.begin('i', 'op', 'request', 'hash-b')).toThrow('IDEMPOTENCY_CONFLICT');
+  const otherHash = 'b'.repeat(64);
+  const begun = one.begin('i', 'op', 'request', HASH); expect(begun.kind).toBe('new');
+  expect(() => two.begin('i', 'op', 'request', HASH)).toThrow('IN_PROGRESS');
+  expect(() => two.begin('i', 'op', 'request', otherHash)).toThrow('IDEMPOTENCY_CONFLICT');
   if (begun.kind === 'new') one.complete(begun.id, { accepted: true });
-  expect(two.begin('i', 'op', 'request', 'hash-a')).toEqual({ kind: 'replay', response: { accepted: true } });
+  expect(two.begin('i', 'op', 'request', HASH)).toEqual({ kind: 'replay', response: { accepted: true } });
   second.close(); db.close();
 });
 
@@ -86,11 +93,11 @@ it('selects the latest workspace checkpoint by its per-run sequence, never times
   const { db } = seeded();
   const now = new Date().toISOString();
   const insert = db.prepare(`INSERT INTO workspace_checkpoints
-    (id,run_id,sequence_number,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,
+    (id,run_id,sequence_number,stage_attempt_id,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,
      staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,created_at)
-    VALUES(?,?,?,'progress',?,?,?,'o','o','o','o',?)`);
-  insert.run('first', 'run', 1, 'head-1', 'base', 'result-1', '9999-12-31T00:00:00.000Z');
-  insert.run('second', 'run', 2, 'head-2', 'result-1', 'result-2', now);
+    VALUES(?,?,?,?,?,?,?,?,'o','o','o','o',?)`);
+  insert.run('first', 'run', 1, null, 'run_start', 'head-1', 'base', 'result-1', '9999-12-31T00:00:00.000Z');
+  insert.run('second', 'run', 2, 'attempt', 'progress', 'head-2', 'result-1', 'result-2', now);
   const checkpoints = new WorkspaceCheckpointRepository(db);
   expect(checkpoints.latest('run')).toMatchObject({ id: 'second', sequence_number: 2, resulting_fingerprint: 'result-2' });
   expect(checkpoints.nextSequence('run')).toBe(3);

@@ -12,8 +12,8 @@ afterEach(() => directories.splice(0).forEach((directory) => rmSync(directory, {
 it('keeps an uncertain helper result unknown and reconciles it through the isolated helper', async () => {
   const fixture = runtimeFixture();
   directories.push(fixture.dir);
-  fixture.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,'h',?)")
-    .run(fixture.object.id, fixture.now);
+  fixture.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,?,?)")
+    .run(fixture.object.id, 'a'.repeat(64), fixture.now);
   fixture.db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES('run','project','wv','','{}','codex','install','root','created',?)")
     .run(fixture.now);
   fixture.db.prepare(`INSERT INTO run_snapshots
@@ -21,7 +21,7 @@ it('keeps an uncertain helper result unknown and reconciles it through the isola
      adapter_capability_object_id,repository_head,staged_patch_object_id,unstaged_patch_object_id,
      untracked_manifest_object_id,submodule_manifest_object_id,working_tree_fingerprint,created_at)
     VALUES('run',?,?,?,?,?,'head',?,?,?,?,?,?)`)
-    .run(fixture.object.id, fixture.object.id, fixture.object.id, fixture.object.id, fixture.object.id,
+    .run(fixture.object.id, fixture.object.id, fixture.object.id, fixture.object.id, fixture.capability.id,
       fixture.object.id, fixture.object.id, fixture.object.id, fixture.object.id, 'fingerprint', fixture.now);
   const leases = new LeaseService(fixture.db, 9, 60_000);
   const lease = leases.claim({ runId: 'run', principal, mode: 'start', expectedStatus: 'created', expectedLeaseEpoch: 0 });
@@ -51,7 +51,7 @@ it('keeps an uncertain helper result unknown and reconciles it through the isola
   expect(fixture.db.prepare('SELECT status FROM side_effect_operations WHERE id=?').get(prepared.operationId))
     .toEqual({ status: 'unknown' });
 
-  const server = await startOperationServer(socketPath, new DriverRegistry([{
+  const server = await startOperationServer(socketPath, DriverRegistry.forTestFixtures([{
     actionType: 'fixture.deploy', executable: '/bin/echo', allowedParameterKeys: ['version'],
     fixedArgs: ['execute'], reconcileArgs: ['reconcile'], timeoutMs: 1_000,
   }]));

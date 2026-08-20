@@ -3,6 +3,7 @@ import type { Server } from 'node:net';
 import { ContentStore } from '@project-orchestrator/content-store';
 import {
   ConfirmationService,
+  invalidateRunConfirmations,
   LeaseService,
   OperationService,
   RunService,
@@ -13,9 +14,8 @@ import {
   openDatabase,
 } from '@project-orchestrator/sqlite-store';
 import type Database from 'better-sqlite3';
-import type { FastifyInstance } from 'fastify';
 import { loadConfig, type ControlConfig } from './config.js';
-import { buildWebListener } from './http/web-listener.js';
+import { buildWebListener, type WebListener } from './http/web-listener.js';
 import { closeAgentListener, startAgentListener } from './ipc/agent-listener.js';
 import { createControlDispatcher } from './ipc/control-dispatcher.js';
 import { OperationHelperClient } from './ipc/operation-helper-client.js';
@@ -23,7 +23,7 @@ import { createCredentialAuthenticator } from './ipc/principal.js';
 
 export type ControlRuntime = Readonly<{
   db: Database.Database;
-  web: FastifyInstance;
+  web: WebListener;
   agent: Server;
   serverEpoch: number;
   shutdown: () => Promise<void>;
@@ -40,6 +40,7 @@ function interruptRuns(
 ): number {
   let interrupted = 0;
   for (const run of runs) {
+    invalidateRunConfirmations(db, run.id, now);
     const stages = db.prepare("SELECT id FROM stage_runs WHERE run_id=? AND status IN ('running','waiting_for_user') ORDER BY stage_key,id")
       .all(run.id) as Array<{ id: string }>;
     for (const stage of stages) {
@@ -63,8 +64,7 @@ function interruptRuns(
 export function prepareRuntimeStartup(db: Database.Database): number {
   const events = new EventRepository(db);
   return db.transaction(() => {
-    const epochRow = db.prepare(`INSERT INTO runtime_metadata(key,value) VALUES('server_epoch','1')
-      ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1 RETURNING value`).get() as { value: string };
+    const epochRow = db.prepare('SELECT COALESCE(MAX(server_epoch),0)+1 AS value FROM runs').get() as { value: number };
     const now = new Date().toISOString();
     const activeRuns = db.prepare("SELECT id,status FROM runs WHERE status IN ('running','waiting_for_user') ORDER BY id")
       .all() as Array<{ id: string; status: string }>;
@@ -76,7 +76,7 @@ export function prepareRuntimeStartup(db: Database.Database): number {
       events.append(operation.run_id, 'side_effect_unknown', 'system', { operationId: operation.id, reason: 'server_restart' });
     }
     interruptRuns(db, events, activeRuns, 'server_restart', now);
-    return Number(epochRow.value);
+    return epochRow.value;
   }).immediate();
 }
 
@@ -120,12 +120,16 @@ export async function startControlServer(config: ControlConfig = loadConfig()): 
     rmSync(config.controlSocketPath, { force: true });
     throw error;
   }
-  const leaseSweep = setInterval(() => interruptExpiredLeases(db), 1_000);
+  const leaseSweep = setInterval(() => {
+    confirmations.expireDue();
+    interruptExpiredLeases(db);
+  }, 1_000);
   let closing: Promise<void> | undefined;
   const shutdown = (): Promise<void> => {
     closing ??= (async () => {
       clearInterval(leaseSweep);
       await closeAgentListener(agent);
+      web.closeEventStreams();
       await web.close();
       db.close();
       rmSync(config.controlSocketPath, { force: true });

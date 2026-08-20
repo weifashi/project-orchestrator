@@ -17,7 +17,7 @@ const payloads: Record<(typeof AgentToolNames)[number], Record<string, unknown>>
   fail_stage: { ...base, stage_run_id: 'stage', error_code: 'FAILED', summary: '' },
   retry_stage: { ...base, stage_run_id: 'stage' },
   skip_stage: { ...base, stage_run_id: 'stage' },
-  request_confirmation: { ...base, stage_run_id: 'stage', confirmation_type: 'release', summary: 'release', exact_action_hash: 'hash' },
+  request_confirmation: { ...base, stage_run_id: 'stage', confirmation_type: 'release', summary: 'release', exact_action_hash: 'a'.repeat(64) },
   record_artifact: { ...base, stage_attempt_id: 'attempt', source_path: 'report.txt', artifact_type: 'document', summary: '' },
   record_workspace_checkpoint: { ...base, checkpoint_kind: 'progress', baseline_fingerprint: 'fingerprint', workspace },
   record_memory: { ...base, memory_type: 'fact', scope: 'project', title: 'title', summary: '', content: {}, retention_policy: 'keep' },

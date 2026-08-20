@@ -7,7 +7,7 @@ CREATE TABLE schema_migrations (
 
 CREATE TABLE content_objects (
   id TEXT PRIMARY KEY,
-  sha256 TEXT NOT NULL UNIQUE,
+  sha256 TEXT NOT NULL UNIQUE CHECK(length(sha256)=64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
   media_type TEXT NOT NULL,
   size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
   storage_key TEXT NOT NULL UNIQUE,
@@ -40,7 +40,7 @@ CREATE TABLE workflow_versions (
   description TEXT NOT NULL,
   safety_baseline_version INTEGER NOT NULL CHECK(safety_baseline_version = 1),
   content_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
-  content_hash TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
   published_at TEXT NOT NULL,
   UNIQUE(workflow_template_id, version_number)
 );
@@ -68,7 +68,7 @@ CREATE TABLE role_versions (
   role_id TEXT NOT NULL REFERENCES roles(id) ON DELETE RESTRICT,
   version_number INTEGER NOT NULL CHECK(version_number > 0),
   content_object_id TEXT NOT NULL REFERENCES content_objects(id) ON DELETE RESTRICT,
-  skill_hash TEXT NOT NULL,
+  skill_hash TEXT NOT NULL CHECK(length(skill_hash)=64 AND skill_hash NOT GLOB '*[^0-9a-f]*'),
   input_schema_envelope TEXT NOT NULL,
   output_schema_envelope TEXT NOT NULL,
   requested_capabilities TEXT NOT NULL,

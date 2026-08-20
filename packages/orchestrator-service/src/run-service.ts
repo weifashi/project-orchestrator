@@ -5,6 +5,7 @@ import type Database from 'better-sqlite3';
 import { canonicalJson, type ContentStore } from '@project-orchestrator/content-store';
 import {
   ContractValidator,
+  HostCapabilityManifestSchema,
   RoleVersionEnvelopeSchema,
   type MemoryRetentionPolicy,
   type MemoryScope,
@@ -29,15 +30,16 @@ import { EventRepository, IdempotencyRepository, RunRepository, type RunRow, typ
 import { LeaseService, type ClaimedLease } from './lease-service.js';
 import type { AdapterPrincipal, LeaseProof, WorkspaceState } from './runtime-types.js';
 import { EvidenceService, workspaceFingerprint } from './evidence-service.js';
-import { ConfirmationService } from './confirmation-service.js';
+import { ConfirmationService, invalidateRunConfirmations } from './confirmation-service.js';
 import { RecoveryService } from './recovery-service.js';
 import { MemoryService } from './memory-service.js';
+import { readRunCapabilities, requireTrustedConfirmation } from './capability-service.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonicalJson(value)).digest('hex');
 type RunRecord = RunRow;
 type AttemptRow = { id: string; stage_run_id: string; attempt_number: number; status: string };
 type PublishedWorkflowRow = { id: string; content_object_id: string; safety_baseline_version: number };
-type InstallationRow = { status: string; capability_object_id: string; client_type: string };
+type InstallationRow = { status: string; capability_object_id: string; client_type: string; adapter_version: string };
 type FrozenRoleBundle = { roles: Array<{ roleVersionId: string; envelope: RoleVersionEnvelope }> };
 type ArtifactRow = { id: string; content_object_id: string; artifact_type: string };
 type CompletionRequirement = { artifact_type: string; min_count: number };
@@ -74,7 +76,7 @@ export class RunService {
       const version = this.db.prepare(`SELECT id,content_object_id,safety_baseline_version FROM workflow_versions WHERE id=?`)
         .get(input.workflowVersionId) as PublishedWorkflowRow | undefined;
       if (!version) throw new Error('NOT_FOUND: workflow version');
-      const installation = this.db.prepare('SELECT status,capability_object_id,client_type FROM client_installations WHERE id=?')
+      const installation = this.db.prepare('SELECT status,capability_object_id,client_type,adapter_version FROM client_installations WHERE id=?')
         .get(input.principal.installationId) as InstallationRow | undefined;
       if (installation?.status !== 'active' || installation.client_type !== input.principal.clientType) {
         throw new Error('POLICY_VIOLATION: inactive or mismatched installation');
@@ -87,6 +89,20 @@ export class RunService {
       }
       const workflow = this.readJson<WorkflowVersionEnvelope>(version.content_object_id);
       validateWorkflowGraph(workflow.data);
+      let capability: ReturnType<typeof readRunCapabilities>;
+      try {
+        this.content.verify(installation.capability_object_id);
+        capability = this.#validator.check(
+          HostCapabilityManifestSchema,
+          this.readJson<unknown>(installation.capability_object_id),
+        );
+      } catch (error) {
+        throw new Error(`ADAPTER_CAPABILITY_INVALID: ${error instanceof Error ? error.message : 'invalid manifest'}`);
+      }
+      if (capability.clientType !== installation.client_type || capability.adapterVersion !== installation.adapter_version
+        || !capability.trustedRootSessionIdentity) {
+        throw new Error('ADAPTER_CAPABILITY_INCOMPATIBLE');
+      }
       const roleBundle = workflow.data.stages.map((stage) => {
         const row = this.db.prepare(`SELECT content_object_id,status FROM role_versions WHERE id=?`)
           .get(stage.role_version_id) as { content_object_id: string; status: string } | undefined;
@@ -102,7 +118,6 @@ export class RunService {
       const safetyObject = this.content.putCanonicalJson(this.#safetyBaseline);
       if (version.safety_baseline_version !== 1) throw new Error('SAFETY_BASELINE_INCOMPATIBLE');
       this.content.verify(version.content_object_id);
-      this.content.verify(installation.capability_object_id);
       const staged = this.content.putUtf8(input.workspace.stagedPatch);
       const unstaged = this.content.putUtf8(input.workspace.unstagedPatch);
       const untracked = this.content.putCanonicalJson(input.workspace.untrackedManifest);
@@ -129,8 +144,6 @@ export class RunService {
         runId, kind: 'run_start', baselineFingerprint: fingerprint, state: input.workspace,
       });
       this.events.append(runId, 'run_created', 'server', { workflowVersionId: input.workflowVersionId });
-      this.refreshFrontier(runId);
-      this.failRunIfExhausted(runId, 'REQUIREMENTS_NOT_MET', 'A required stage is unreachable');
       return { runId };
     });
   }
@@ -224,6 +237,10 @@ export class RunService {
       if (definition.requires_confirmation && !this.hasConsumedConfirmation(input.proof.runId, stage.id, attempt.id)) {
         throw new Error('POLICY_VIOLATION: consumed confirmation required for current attempt');
       }
+      if (this.db.prepare(`SELECT 1 FROM side_effect_operations WHERE run_id=? AND stage_attempt_id=?
+        AND status IN ('intent_recorded','executing','unknown') LIMIT 1`).get(input.proof.runId, attempt.id)) {
+        throw new Error('SIDE_EFFECT_OPERATION_UNRESOLVED');
+      }
       const output = this.#validator.check(SucceededStageOutputEnvelopeSchema, input.output) as StageOutputEnvelope;
       const referencedIds = [...output.data.artifact_object_ids, ...output.data.evidence_object_ids,
         ...(output.data.changed_file_manifest_object_id === undefined ? [] : [output.data.changed_file_manifest_object_id])];
@@ -234,6 +251,7 @@ export class RunService {
       for (const id of referencedIds) {
         if (!ownedContent.has(id)) throw new Error('POLICY_VIOLATION: output references artifact not owned by attempt');
       }
+      this.validateArtifactClassification(output, ownedArtifacts);
       this.validateFrozenRoleContract(input.proof.runId, stage.role_version_id, output, ownedArtifacts);
       const artifactIds = new Set(output.data.artifact_object_ids);
       const evidenceIds = new Set(output.data.evidence_object_ids);
@@ -311,6 +329,15 @@ export class RunService {
       const run = this.requireRun(input.proof.runId);
       assertRunTransition(run.status as RunStatus, 'cancelled');
       const now = new Date().toISOString();
+      invalidateRunConfirmations(this.db, run.id, now);
+      const executing = this.db.prepare(`SELECT id FROM side_effect_operations WHERE run_id=? AND status='executing' ORDER BY id`)
+        .all(run.id) as Array<{ id: string }>;
+      this.db.prepare(`UPDATE side_effect_operations SET status='unknown',completed_at=?
+        WHERE run_id=? AND status='executing'`).run(now, run.id);
+      for (const operation of executing) {
+        this.events.append(run.id, 'side_effect_unknown', 'server',
+          { operationId: operation.id, reason: 'run_cancelled_during_execution' });
+      }
       this.db.prepare(`UPDATE runs SET status='cancelled',completed_at=?,updated_at=? WHERE id=? AND status=?`)
         .run(now, now, run.id, run.status);
       this.db.prepare(`UPDATE stage_runs SET status='cancelled',updated_at=?,completed_at=?
@@ -362,6 +389,11 @@ export class RunService {
         const validatedOutput = this.#validator.check(SucceededStageOutputEnvelopeSchema, JSON.parse(attempt.output_envelope)) as StageOutputEnvelope;
         const artifacts = this.db.prepare(`SELECT id,content_object_id,artifact_type FROM artifacts
           WHERE run_id=? AND stage_attempt_id=? ORDER BY id`).all(run.id, stage.latest_attempt_id) as ArtifactRow[];
+        this.validateArtifactClassification(validatedOutput, artifacts);
+        this.assertManifestMatches(attempt.artifact_manifest_object_id, artifacts.filter((artifact) =>
+          validatedOutput.data.artifact_object_ids.includes(artifact.content_object_id)));
+        this.assertManifestMatches(attempt.evidence_manifest_object_id, artifacts.filter((artifact) =>
+          validatedOutput.data.evidence_object_ids.includes(artifact.content_object_id)));
         this.validateFrozenRoleContract(run.id, stage.role_version_id, validatedOutput, artifacts);
         const definition = workflow.data.stages.find((candidate) => candidate.key === key);
         if (definition?.requires_confirmation && !this.hasConsumedConfirmation(run.id, stage.id, stage.latest_attempt_id)) {
@@ -400,6 +432,7 @@ export class RunService {
     type: string; summary: string; exactActionHash: string; ttlMs?: number;
   }): { id: string; nonce: string; expiresAt: string } {
     return this.leasedOnce(input, 'request_confirmation', 'ALREADY_REQUESTED', () => {
+      requireTrustedConfirmation(readRunCapabilities(this.db, this.content, input.proof.runId));
       const stage = this.requireStageForRun(input.stageRunId, input.proof.runId, 'running');
       const attempt = this.requireRunningAttempt(stage.latest_attempt_id, stage.id);
       const snapshot = this.db.prepare('SELECT safety_baseline_object_id FROM run_snapshots WHERE run_id=?')
@@ -704,8 +737,10 @@ export class RunService {
   private pause(runId: string): void {
     const run = this.requireRun(runId);
     assertRunTransition(run.status as RunStatus, 'paused');
+    const now = new Date().toISOString();
+    invalidateRunConfirmations(this.db, run.id, now);
     this.db.prepare(`UPDATE runs SET status='paused',lease_token_hash=NULL,lease_expires_at=NULL,
-      lease_holder_session_id=NULL,updated_at=? WHERE id=? AND status=?`).run(new Date().toISOString(), run.id, run.status);
+      lease_holder_session_id=NULL,updated_at=? WHERE id=? AND status=?`).run(now, run.id, run.status);
     this.events.append(run.id, 'run_paused', 'server', {});
   }
 
@@ -763,13 +798,8 @@ export class RunService {
   }
 
   private adapterCapabilities(runId: string): { parallelSubagentIsolation: boolean } {
-    const snapshot = this.db.prepare('SELECT adapter_capability_object_id FROM run_snapshots WHERE run_id=?')
-      .get(runId) as { adapter_capability_object_id: string } | undefined;
-    if (!snapshot) throw new Error('NOT_FOUND: snapshot');
-    this.content.verify(snapshot.adapter_capability_object_id);
-    const value = this.readJson<unknown>(snapshot.adapter_capability_object_id);
-    const capability = value !== null && typeof value === 'object' ? value as Record<string, unknown> : {};
-    return { parallelSubagentIsolation: capability['parallelSubagentIsolation'] === true };
+    const capability = readRunCapabilities(this.db, this.content, runId);
+    return { parallelSubagentIsolation: capability.parallelSubagentIsolation };
   }
 
   private ensureIteration(runId: string, groupKey: string, iterationNumber: number, now: string): void {
@@ -803,11 +833,7 @@ export class RunService {
   ): void {
     const role = this.frozenRole(runId, roleVersionId);
     for (const artifact of artifacts) this.content.verify(artifact.content_object_id);
-    const outputSchema = role.data.output_schema.data;
-    if (outputSchema !== null && typeof outputSchema === 'object' && !Array.isArray(outputSchema)
-      && Object.keys(outputSchema as Record<string, unknown>).length > 0) {
-      this.#validator.check(outputSchema as Parameters<ContractValidator['check']>[0], output.data);
-    }
+    this.#validator.checkJsonSchema(role.data.output_schema.data, output.data);
     const contract = role.data.completion_contract.data;
     if (contract === null || typeof contract !== 'object' || Array.isArray(contract)) {
       throw new Error('POLICY_VIOLATION: invalid frozen completion contract');
@@ -832,6 +858,31 @@ export class RunService {
     };
     validateRequirements('required_artifacts', output.data.artifact_object_ids);
     validateRequirements('required_evidence', output.data.evidence_object_ids);
+  }
+
+  private validateArtifactClassification(output: StageOutputEnvelope, artifacts: readonly ArtifactRow[]): void {
+    const artifactIds = new Set(output.data.artifact_object_ids);
+    const evidenceIds = new Set(output.data.evidence_object_ids);
+    const changedId = output.data.changed_file_manifest_object_id;
+    for (const id of artifactIds) {
+      if (evidenceIds.has(id) || id === changedId) throw new Error('POLICY_VIOLATION: artifact classification overlaps');
+    }
+    for (const id of evidenceIds) {
+      if (id === changedId) throw new Error('POLICY_VIOLATION: artifact classification overlaps');
+    }
+    const referenced = new Set([...artifactIds, ...evidenceIds, ...(changedId === undefined ? [] : [changedId])]);
+    for (const artifact of artifacts) {
+      if (!referenced.has(artifact.content_object_id)) {
+        throw new Error('POLICY_VIOLATION: recorded artifact missing from completion output');
+      }
+    }
+  }
+
+  private assertManifestMatches(objectId: string, expected: readonly ArtifactRow[]): void {
+    const stored = this.readJson<unknown>(objectId);
+    if (canonicalJson(stored) !== canonicalJson(expected)) {
+      throw new Error('POLICY_VIOLATION: frozen artifact manifest does not match actual records');
+    }
   }
 
   private insertStageRun(runId: string, stage: WorkflowStage, iteration: number, status: 'queued' | 'ready', now: string): void {

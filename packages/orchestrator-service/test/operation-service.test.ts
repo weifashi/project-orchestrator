@@ -6,13 +6,17 @@ import { principal, runtimeFixture } from './runtime-fixture.js';
 const clean: string[] = [];
 afterEach(() => clean.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
 
-function fixture(helper: OperationHelper) {
+function fixture(helper: OperationHelper, managedOperationExecution = true) {
   const f = runtimeFixture();
   clean.push(f.dir);
-  f.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,'h',?)").run(f.object.id, f.now);
+  const capability = managedOperationExecution ? f.capability : f.content.putCanonicalJson({
+    clientType: 'codex', adapterVersion: '1', trustedRootSessionIdentity: true,
+    parallelSubagentIsolation: true, trustedInteractiveConfirmation: true, managedOperationExecution: false,
+  });
+  f.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,?,?)").run(f.object.id, 'a'.repeat(64), f.now);
   f.db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES('run','project','wv','','{}','codex','install','root','created',?)").run(f.now);
   f.db.prepare(`INSERT INTO run_snapshots(run_id,workflow_object_id,role_bundle_object_id,rule_bundle_object_id,safety_baseline_object_id,adapter_capability_object_id,repository_head,staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,working_tree_fingerprint,created_at)
-    VALUES('run',?,?,?,?,?,'head',?,?,?,?,? ,?)`).run(f.object.id, f.object.id, f.object.id, f.object.id, f.object.id, f.object.id, f.object.id, f.object.id, f.object.id, 'fp', f.now);
+    VALUES('run',?,?,?,?,?,'head',?,?,?,?,? ,?)`).run(f.object.id, f.object.id, f.object.id, f.object.id, capability.id, f.object.id, f.object.id, f.object.id, f.object.id, 'fp', f.now);
   const leases = new LeaseService(f.db, 1, 60_000);
   const lease = leases.claim({ runId: 'run', principal, mode: 'start', expectedStatus: 'created', expectedLeaseEpoch: 0 });
   const proof = { runId: 'run', leaseEpoch: lease.leaseEpoch, leaseToken: lease.leaseToken };
@@ -38,6 +42,25 @@ it('moves the stage and idle run to waiting on prepare, then resumes both after 
   });
   expect(f.db.prepare("SELECT status FROM stage_runs WHERE id='stage'").get()).toEqual({ status: 'running' });
   expect(f.db.prepare("SELECT status FROM runs WHERE id='run'").get()).toEqual({ status: 'running' });
+  f.db.close();
+});
+
+it('keeps a parallel run active while only the operation stage waits for approval', () => {
+  const f = fixture({ execute: async () => ({ status: 'succeeded', evidence: {} }) });
+  f.db.prepare("INSERT INTO stage_runs(id,run_id,stage_key,role_version_id,status,max_attempts,created_at,updated_at) VALUES('peer','run','peer','role-v1','ready',1,?,?)")
+    .run(f.now, f.now);
+  f.operations.prepare({ requestId: 'prepare', proof: f.proof, principal, stageAttemptId: 'attempt',
+    actionType: 'deploy', targetFingerprint: 'node', parameters: {}, summary: 'deploy' });
+  expect(f.db.prepare("SELECT status FROM stage_runs WHERE id='stage'").get()).toEqual({ status: 'waiting_for_user' });
+  expect(f.db.prepare("SELECT status FROM runs WHERE id='run'").get()).toEqual({ status: 'running' });
+  f.db.close();
+});
+
+it('fails closed when managed operations are disabled by the frozen adapter capability', () => {
+  const f = fixture({ execute: async () => ({ status: 'succeeded', evidence: {} }) }, false);
+  expect(() => f.operations.prepare({ requestId: 'prepare', proof: f.proof, principal, stageAttemptId: 'attempt',
+    actionType: 'deploy', targetFingerprint: 'node', parameters: {}, summary: 'deploy' }))
+    .toThrow('MANAGED_OPERATION_UNAVAILABLE');
   f.db.close();
 });
 
@@ -91,5 +114,23 @@ it('keeps an inconclusive reconcile unknown and emits unknown rather than reconc
     .toEqual({ status: 'unknown' });
   expect(f.db.prepare("SELECT event_type FROM events WHERE run_id='run' ORDER BY sequence_number DESC LIMIT 1").get())
     .toEqual({ event_type: 'side_effect_unknown' });
+  f.db.close();
+});
+
+it('refuses to reconcile an unknown operation after its attempt is already succeeded', async () => {
+  const f = fixture({
+    execute: async () => { throw new Error('connection lost'); },
+    reconcile: async () => ({ status: 'succeeded' as const, evidence: {} }),
+  });
+  const prepared = f.operations.prepare({ requestId: 'prepare', proof: f.proof, principal,
+    stageAttemptId: 'attempt', actionType: 'deploy', targetFingerprint: 'node', parameters: {}, summary: 'deploy' });
+  f.confirmations.submitDecision({ confirmationRequestId: prepared.confirmationRequestId, nonce: prepared.nonce,
+    exactActionHash: prepared.actionHash, decision: 'approve', principal: { ...principal, trustedInteractive: true } });
+  await f.operations.execute({ requestId: 'execute', proof: f.proof, principal, operationId: prepared.operationId });
+  f.db.prepare(`UPDATE stage_attempts SET status='succeeded',output_envelope='{}',artifact_manifest_object_id=?,
+    evidence_manifest_object_id=?,changed_files_object_id=?,completed_at=? WHERE id='attempt' AND status='running'`)
+    .run(f.object.id, f.object.id, f.object.id, f.now);
+  await expect(f.operations.reconcile({ requestId: 'reconcile', proof: f.proof, principal,
+    operationId: prepared.operationId })).rejects.toThrow('attempt state');
   f.db.close();
 });

@@ -6,7 +6,7 @@ const clean: string[] = [];
 afterEach(() => clean.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
 it('issues one-time hashed fenced leases and rejects stale CAS/subagent/server restart', () => {
   const fixture = runtimeFixture(); clean.push(fixture.dir);
-  fixture.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('workflow-v1','workflow',1,'',1,?,'h',?)").run(fixture.object.id, fixture.now);
+  fixture.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('workflow-v1','workflow',1,'',1,?,'0000000000000000000000000000000000000000000000000000000000000000',?)").run(fixture.object.id, fixture.now);
   fixture.db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES('run','project','workflow-v1','','{}','codex','install','root','created',?)").run(fixture.now);
   const service = new LeaseService(fixture.db, 10, 10_000);
   const lease = service.claim({ runId: 'run', principal, mode: 'start', expectedStatus: 'created', expectedLeaseEpoch: 0 });

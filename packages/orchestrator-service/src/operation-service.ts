@@ -5,6 +5,7 @@ import { EventRepository, IdempotencyRepository } from '@project-orchestrator/sq
 import type { LeaseService } from './lease-service.js';
 import type { AdapterPrincipal, LeaseProof } from './runtime-types.js';
 import type { ConfirmationService } from './confirmation-service.js';
+import { readRunCapabilities, requireManagedOperations } from './capability-service.js';
 
 export type OperationExecutionResult = { status: 'succeeded' | 'unknown'; externalReference?: string; evidence: unknown };
 export type OperationHelper = {
@@ -39,6 +40,7 @@ export class OperationService {
     const actionHash = hash(intent);
     return this.db.transaction(() => {
       this.leases.validate(input.proof, input.principal);
+      requireManagedOperations(readRunCapabilities(this.db, this.content, input.proof.runId));
       const begun = this.idem.begin(input.principal.installationId, 'prepare_side_effect', input.requestId, hash({ ...input, proof: { ...input.proof, leaseToken: hash(input.proof.leaseToken) } }));
       if (begun.kind === 'replay') throw new Error('ALREADY_PREPARED');
       const ownership = this.requireAttempt(input.stageAttemptId, input.proof.runId, 'running');
@@ -60,9 +62,11 @@ export class OperationService {
       const now = new Date().toISOString();
       const stageChanged = this.db.prepare("UPDATE stage_runs SET status='waiting_for_user',updated_at=? WHERE id=? AND run_id=? AND status='running'")
         .run(now, ownership.stage_run_id, input.proof.runId);
-      const runChanged = this.db.prepare("UPDATE runs SET status='waiting_for_user',updated_at=? WHERE id=? AND status='running'")
+      const otherWork = this.db.prepare(`SELECT 1 FROM stage_runs WHERE run_id=? AND id<>?
+        AND status IN ('ready','running') LIMIT 1`).get(input.proof.runId, ownership.stage_run_id);
+      const runChanged = otherWork ? undefined : this.db.prepare("UPDATE runs SET status='waiting_for_user',updated_at=? WHERE id=? AND status='running'")
         .run(now, input.proof.runId);
-      if (stageChanged.changes !== 1 || runChanged.changes !== 1) {
+      if (stageChanged.changes !== 1 || (runChanged !== undefined && runChanged.changes !== 1)) {
         throw new Error('INVALID_TRANSITION: operation confirmation cannot enter waiting state');
       }
       this.events.append(input.proof.runId, 'side_effect_prepared', 'server', { operationId }, ownership.stage_run_id);
@@ -74,6 +78,7 @@ export class OperationService {
   async execute(input: { requestId: string; proof: LeaseProof; principal: AdapterPrincipal; operationId: string }): Promise<OperationExecutionResult> {
     const begun = this.db.transaction(() => {
       this.leases.validate(input.proof, input.principal);
+      requireManagedOperations(readRunCapabilities(this.db, this.content, input.proof.runId));
       const idempotency = this.idem.begin(input.principal.installationId, 'execute_side_effect', input.requestId,
         hash({ ...input, proof: { ...input.proof, leaseToken: hash(input.proof.leaseToken) } }));
       if (idempotency.kind === 'replay') return { replay: idempotency.response as OperationExecutionResult } as const;
@@ -115,12 +120,13 @@ export class OperationService {
   async reconcile(input: { requestId: string; proof: LeaseProof; principal: AdapterPrincipal; operationId: string }): Promise<OperationExecutionResult> {
     const prepared = this.db.transaction(() => {
       this.leases.validate(input.proof, input.principal);
+      requireManagedOperations(readRunCapabilities(this.db, this.content, input.proof.runId));
       const idempotency = this.idem.begin(input.principal.installationId, 'reconcile_side_effect', input.requestId,
         hash({ ...input, proof: { ...input.proof, leaseToken: hash(input.proof.leaseToken) } }));
       if (idempotency.kind === 'replay') return { replay: idempotency.response as OperationExecutionResult } as const;
       const operation = this.getOperation(input.operationId);
       if (operation.run_id !== input.proof.runId || operation.status !== 'unknown') throw new Error('INVALID_TRANSITION: only owned unknown operation may reconcile');
-      this.requireAttempt(operation.stage_attempt_id, operation.run_id);
+      this.requireAttempt(operation.stage_attempt_id, operation.run_id, 'running');
       if (!this.helper.reconcile) throw new Error('POLICY_VIOLATION: driver cannot reconcile');
       return { operation, idempotencyId: idempotency.id } as const;
     }).immediate();

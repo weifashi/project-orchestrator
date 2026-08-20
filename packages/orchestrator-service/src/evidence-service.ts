@@ -54,12 +54,20 @@ export class EvidenceService {
   constructor(readonly db: Database.Database, readonly content: ContentStore) {}
 
   recordArtifact(input: ArtifactInput): { id: string; contentObjectId: string } {
-    const ownership = this.db.prepare(`SELECT p.canonical_path,s.role_version_id
+    const ownership = this.db.prepare(`SELECT p.canonical_path,s.role_version_id,s.status AS stage_status,
+        s.latest_attempt_id,a.status AS attempt_status
       FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
       JOIN runs r ON r.id=s.run_id JOIN projects p ON p.id=r.project_id
-      WHERE a.id=? AND r.id=?`).get(input.stageAttemptId, input.runId) as { canonical_path: string; role_version_id: string } | undefined;
+      WHERE a.id=? AND r.id=?`).get(input.stageAttemptId, input.runId) as {
+        canonical_path: string; role_version_id: string; stage_status: string;
+        latest_attempt_id: string | null; attempt_status: string;
+      } | undefined;
     if (!ownership) throw new Error('POLICY_VIOLATION: attempt does not belong to run');
     if (ownership.role_version_id !== input.producerRoleVersionId) throw new Error('POLICY_VIOLATION: producer role mismatch');
+    if (ownership.latest_attempt_id !== input.stageAttemptId
+      || ownership.attempt_status !== 'running' || ownership.stage_status !== 'running') {
+      throw new Error('INVALID_TRANSITION: artifact requires running latest attempt');
+    }
     const root = authenticatedProjectRoot(ownership.canonical_path, input.adapterContext.canonicalProjectPath);
     const candidate = resolve(root, input.sourcePath);
     if (!within(root, candidate)) throw new Error('POLICY_VIOLATION: artifact outside project');
@@ -107,11 +115,24 @@ export class EvidenceService {
         throw new Error('WORKTREE_CHANGED: checkpoint baseline mismatch');
       }
       if (input.stageAttemptId !== undefined) {
-        const attempt = this.db.prepare(`SELECT a.status FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
-          WHERE a.id=? AND s.run_id=?`).get(input.stageAttemptId, input.runId) as { status: string } | undefined;
+        const attempt = this.db.prepare(`SELECT a.status AS attempt_status,s.status AS stage_status,s.latest_attempt_id
+          FROM stage_attempts a JOIN stage_runs s ON s.id=a.stage_run_id
+          WHERE a.id=? AND s.run_id=?`).get(input.stageAttemptId, input.runId) as {
+            attempt_status: string; stage_status: string; latest_attempt_id: string | null;
+          } | undefined;
         if (!attempt) throw new Error('POLICY_VIOLATION: checkpoint attempt does not belong to run');
-        if (input.kind === 'after_attempt' && attempt.status !== 'succeeded') throw new Error('POLICY_VIOLATION: after checkpoint requires succeeded attempt');
-      } else if (input.kind !== 'run_start' && input.kind !== 'progress') {
+        if (attempt.latest_attempt_id !== input.stageAttemptId) {
+          throw new Error('POLICY_VIOLATION: checkpoint requires latest attempt');
+        }
+        if (['before_attempt', 'progress'].includes(input.kind)
+          && (attempt.attempt_status !== 'running' || attempt.stage_status !== 'running')) {
+          throw new Error('POLICY_VIOLATION: active checkpoint requires running attempt and stage');
+        }
+        if (input.kind === 'after_attempt'
+          && (attempt.attempt_status !== 'succeeded' || attempt.stage_status !== 'succeeded')) {
+          throw new Error('POLICY_VIOLATION: after checkpoint requires succeeded attempt and stage');
+        }
+      } else if (input.kind !== 'run_start') {
         throw new Error('POLICY_VIOLATION: attempt checkpoint requires attempt');
       }
       const staged = this.content.putUtf8(input.state.stagedPatch);

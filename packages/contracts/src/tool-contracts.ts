@@ -57,7 +57,8 @@ export const FailStageToolRequestSchema = closed({
 export const RetryStageToolRequestSchema = closed({ ...StageRequest(), stage_input: Type.Optional(Type.Unknown()) });
 export const SkipStageToolRequestSchema = closed({ ...StageRequest() });
 export const RequestConfirmationToolRequestSchema = closed({
-  ...StageRequest(), confirmation_type: Id(), summary: Id(), exact_action_hash: Id(),
+  ...StageRequest(), confirmation_type: Id(), summary: Id(),
+  exact_action_hash: Type.String({ pattern: '^[0-9a-f]{64}$' }),
   ttl_ms: Type.Optional(Type.Integer({ minimum: 1 })),
 });
 export const RecordArtifactToolRequestSchema = closed({

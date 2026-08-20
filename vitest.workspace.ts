@@ -17,6 +17,7 @@ export default defineWorkspace([
       name: 'unit',
       include: ['packages/*/test/**/*.test.ts'],
       exclude: ['packages/*/test/**/*.integration.test.ts'],
+      maxWorkers: 4,
     },
   },
   {

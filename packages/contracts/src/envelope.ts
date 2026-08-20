@@ -48,6 +48,25 @@ export class ContractValidator {
     if (!validate(value)) throw new Error(`SCHEMA_INVALID: ${formatErrors(validate.errors)}`);
     return value as Static<T>;
   }
+
+  assertJsonSchema(schema: unknown): void {
+    try {
+      this.#ajv.compile(schema as boolean | object);
+    } catch (error) {
+      throw new Error(`SCHEMA_INVALID: invalid JSON Schema: ${error instanceof Error ? error.message : 'invalid'}`);
+    }
+  }
+
+  checkJsonSchema(schema: unknown, value: unknown): unknown {
+    let validate: ReturnType<Ajv2020['compile']>;
+    try {
+      validate = this.#ajv.compile(schema as boolean | object);
+    } catch (error) {
+      throw new Error(`SCHEMA_INVALID: invalid JSON Schema: ${error instanceof Error ? error.message : 'invalid'}`);
+    }
+    if (!validate(value)) throw new Error(`SCHEMA_INVALID: ${formatErrors(validate.errors)}`);
+    return value;
+  }
 }
 
 export const GenericEnvelopeSchema = Type.Object({

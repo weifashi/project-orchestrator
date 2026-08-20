@@ -62,7 +62,7 @@ export const InternalConfirmationDecisionSchema = Type.Object({
   payload: Type.Object({
     confirmation_request_id: Type.String({ minLength: 1 }),
     nonce: Type.String({ minLength: 1 }),
-    exact_action_hash: Type.String({ minLength: 1 }),
+    exact_action_hash: Type.String({ pattern: '^[0-9a-f]{64}$' }),
     expires_at: Type.String({ format: 'date-time' }),
     decision: Type.Union([Type.Literal('approve'), Type.Literal('reject')]),
   }, { additionalProperties: false }),

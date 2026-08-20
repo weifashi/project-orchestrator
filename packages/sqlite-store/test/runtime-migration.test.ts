@@ -5,15 +5,16 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { migrate, openDatabase } from '../src/index.js';
 const directories: string[] = [];
+const HASH = 'a'.repeat(64);
 afterEach(() => directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
 function database() { const directory = mkdtempSync(join(tmpdir(), 'runtime-db-')); directories.push(directory); const db = openDatabase(join(directory, 'db.sqlite')); migrate(db); return db; }
 function seed(db: ReturnType<typeof openDatabase>) {
   const now = new Date().toISOString(); const hash = createHash('sha256').update('credential').digest('hex');
-  db.prepare("INSERT INTO content_objects(id,sha256,media_type,size_bytes,storage_key,created_at) VALUES('o','h','application/json',2,'h/h',?)").run(now);
+  db.prepare("INSERT INTO content_objects(id,sha256,media_type,size_bytes,storage_key,created_at) VALUES('o',?,'application/json',2,'h/h',?)").run(HASH, now);
   db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('wt','w','W','feature','active',?,?)").run(now, now);
-  db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','wt',1,'',1,'o','h',?)").run(now);
+  db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','wt',1,'',1,'o',?,?)").run(HASH, now);
   db.prepare("INSERT INTO roles(id,slug,name,status,created_at,updated_at) VALUES('r','r','R','active',?,?)").run(now, now);
-  db.prepare("INSERT INTO role_versions(id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status) VALUES('rv','r',1,'o','h','{}','{}','[]','[]','[]','{}',?,'published')").run(now);
+  db.prepare("INSERT INTO role_versions(id,role_id,version_number,content_object_id,skill_hash,input_schema_envelope,output_schema_envelope,requested_capabilities,effective_capabilities,forbidden_capabilities,completion_contract_envelope,published_at,status) VALUES('rv','r',1,'o',?,'{}','{}','[]','[]','[]','{}',?,'published')").run(HASH, now);
   db.prepare("INSERT INTO client_installations(id,client_type,adapter_version,capability_object_id,credential_hash,status,last_seen_at) VALUES('i','codex','1','o',?,'active',?)").run(hash, now);
   for (const id of ['p1', 'p2']) db.prepare('INSERT INTO projects(id,canonical_path,display_name,repository_fingerprint,created_at,last_seen_at) VALUES(?,?,?,?,?,?)').run(id, `/tmp/${id}`, id, 'f', now, now);
   for (const [run, project] of [['run1', 'p1'], ['run2', 'p2']]) db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES(?,?, 'wv','','{}','codex','i','root','running',?)").run(run, project, now);
@@ -26,7 +27,10 @@ function seed(db: ReturnType<typeof openDatabase>) {
 }
 it('creates all runtime tables with strict defaults and indexes', () => {
   const db = database(); const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name);
-  for (const name of ['runtime_metadata', 'client_installations', 'projects', 'runs', 'run_snapshots', 'workspace_checkpoints', 'stage_runs', 'run_iterations', 'stage_attempts', 'confirmation_requests', 'side_effect_operations', 'artifacts', 'memories', 'events', 'idempotency_requests']) expect(tables).toContain(name);
+  const runtimeTables = ['client_installations', 'projects', 'runs', 'run_snapshots', 'workspace_checkpoints', 'stage_runs', 'run_iterations', 'stage_attempts', 'confirmation_requests', 'side_effect_operations', 'artifacts', 'memories', 'events', 'idempotency_requests'];
+  expect(runtimeTables).toHaveLength(14);
+  for (const name of runtimeTables) expect(tables).toContain(name);
+  expect(tables).not.toContain('runtime_metadata');
   const columns = db.prepare('PRAGMA table_info(stage_runs)').all() as Array<{ name: string; dflt_value: string | null }>;
   expect(columns.find((column) => column.name === 'iteration_number')?.dflt_value).toBe('0');
   expect(db.prepare("SELECT sql FROM sqlite_master WHERE name='events'").get()).toMatchObject({ sql: expect.stringContaining('UNIQUE(run_id,sequence_number)') }); db.close();
@@ -38,9 +42,9 @@ it('enforces runtime ownership, unique attempts/iterations, confirmation checks 
   expect(() => db.prepare("INSERT INTO run_iterations(id,run_id,group_key,iteration_number,status,created_at) VALUES('dup-it','run1','g',1,'running',?)").run(now)).toThrow(/UNIQUE/);
   expect(() => db.prepare("INSERT INTO run_iterations(id,run_id,group_key,iteration_number,status,created_at) VALUES('it4','run1','g',4,'running',?)").run(now)).toThrow(/CHECK/);
   expect(() => db.prepare("INSERT INTO workspace_checkpoints(id,run_id,sequence_number,stage_attempt_id,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,created_at) VALUES('cp','run1',1,'a2','progress','h','b','r','o','o','o','o',?)").run(now)).toThrow(/CHECKPOINT_OWNERSHIP/);
-  expect(() => db.prepare("INSERT INTO confirmation_requests(id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,requested_installation_id,status,requested_at,expires_at) VALUES('c','run1','s2','a2','x','x','a','n','o','i','pending',?,?)").run(now, now)).toThrow(/CONFIRMATION_OWNERSHIP/);
-  expect(() => db.prepare("INSERT INTO confirmation_requests(id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,requested_installation_id,status,requested_at,expires_at) VALUES('bad','run1','s1','a1','x','x','a','n','o','i','made_up',?,?)").run(now, now)).toThrow(/CHECK/);
-  db.prepare("INSERT INTO confirmation_requests(id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,requested_installation_id,status,requested_at,expires_at) VALUES('good','run1','s1','a1','x','x','a','n','o','i','pending',?,?)").run(now, now);
+  expect(() => db.prepare("INSERT INTO confirmation_requests(id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,requested_installation_id,status,requested_at,expires_at) VALUES('c','run1','s2','a2','x','x',?,?,'o','i','pending',?,?)").run(HASH, HASH, now, now)).toThrow(/CONFIRMATION_OWNERSHIP/);
+  expect(() => db.prepare("INSERT INTO confirmation_requests(id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,requested_installation_id,status,requested_at,expires_at) VALUES('bad','run1','s1','a1','x','x',?,?,'o','i','made_up',?,?)").run(HASH, HASH, now, now)).toThrow(/CHECK/);
+  db.prepare("INSERT INTO confirmation_requests(id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,requested_installation_id,status,requested_at,expires_at) VALUES('good','run1','s1','a1','x','x',?,?,'o','i','pending',?,?)").run(HASH, HASH, now, now);
   expect(() => db.prepare("INSERT INTO artifacts(id,run_id,stage_attempt_id,artifact_type,content_object_id,summary,producer_role_version_id,metadata_envelope,created_at) VALUES('art','run2','a1','log','o','x','rv','{}',?)").run(now)).toThrow(/ARTIFACT_OWNERSHIP/);
   expect(() => db.prepare("INSERT INTO events(id,run_id,stage_run_id,sequence_number,event_type,source_principal_id,payload_envelope,created_at) VALUES('e','run1','s2',1,'agent_note','i','{}',?)").run(now)).toThrow(/EVENT_OWNERSHIP/);
   expect(() => db.prepare("DELETE FROM stage_attempts WHERE id='a1'").run()).toThrow(/IMMUTABLE_ATTEMPT/);
@@ -54,13 +58,16 @@ it('enforces runtime ownership, unique attempts/iterations, confirmation checks 
 it('enforces per-run monotonic checkpoint sequences and closed memory enums/deduplication', () => {
   const db = database(); const now = seed(db);
   const insertCheckpoint = db.prepare(`INSERT INTO workspace_checkpoints
+    (id,run_id,sequence_number,stage_attempt_id,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,
+     staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,created_at)
+    VALUES(?,?,?,?,'progress','h','b','r','o','o','o','o',?)`);
+  db.prepare(`INSERT INTO workspace_checkpoints
     (id,run_id,sequence_number,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,
      staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,created_at)
-    VALUES(?,?,?,'progress','h','b','r','o','o','o','o',?)`);
-  insertCheckpoint.run('cp-1', 'run1', 1, now);
-  expect(() => insertCheckpoint.run('cp-3', 'run1', 3, now)).toThrow(/CHECKPOINT_SEQUENCE/);
-  insertCheckpoint.run('cp-2', 'run1', 2, now);
-  expect(() => insertCheckpoint.run('cp-duplicate', 'run1', 2, now)).toThrow();
+    VALUES('cp-1','run1',1,'run_start','h','b','r','o','o','o','o',?)`).run(now);
+  expect(() => insertCheckpoint.run('cp-3', 'run1', 3, 'a1', now)).toThrow(/CHECKPOINT_SEQUENCE/);
+  insertCheckpoint.run('cp-2', 'run1', 2, 'a1', now);
+  expect(() => insertCheckpoint.run('cp-duplicate', 'run1', 2, 'a1', now)).toThrow();
 
   const insertMemory = db.prepare(`INSERT INTO memories
     (id,project_id,source_run_id,memory_type,scope,title,summary,content_object_id,retention_policy,created_at)
@@ -70,5 +77,53 @@ it('enforces per-run monotonic checkpoint sequences and closed memory enums/dedu
   expect(() => insertMemory.run('bad-type', 'p1', 'run1', 'unknown', 'project', 'x', '', 'o', 'keep', now)).toThrow(/CHECK/);
   expect(() => insertMemory.run('bad-scope', 'p1', 'run1', 'decision', 'global', 'x', '', 'o', 'keep', now)).toThrow(/CHECK/);
   expect(() => insertMemory.run('bad-retention', 'p1', 'run1', 'decision', 'project', 'x', '', 'o', 'forever', now)).toThrow(/CHECK/);
+  db.close();
+});
+
+it('binds artifacts and checkpoints to the latest attempt and matching lifecycle state', () => {
+  const db = database(); const now = seed(db);
+  const checkpoint = db.prepare(`INSERT INTO workspace_checkpoints
+    (id,run_id,sequence_number,stage_attempt_id,checkpoint_kind,repository_head,baseline_fingerprint,resulting_fingerprint,
+     staged_patch_object_id,unstaged_patch_object_id,untracked_manifest_object_id,submodule_manifest_object_id,created_at)
+    VALUES(?,?,?,?,?,'h','b','r','o','o','o','o',?)`);
+  checkpoint.run('start', 'run1', 1, null, 'run_start', now);
+  expect(() => checkpoint.run('after-running', 'run1', 2, 'a1', 'after_attempt', now)).toThrow(/CHECKPOINT_STATE/);
+  db.prepare("INSERT INTO stage_attempts(id,stage_run_id,attempt_number,status,input_envelope,started_at) VALUES('old','s1',2,'running','{}',?)").run(now);
+  expect(() => checkpoint.run('not-latest', 'run1', 2, 'old', 'progress', now)).toThrow(/CHECKPOINT_STATE/);
+  const artifact = db.prepare(`INSERT INTO artifacts
+    (id,run_id,stage_attempt_id,artifact_type,content_object_id,summary,producer_role_version_id,metadata_envelope,created_at)
+    VALUES(?,'run1',?,'log','o','artifact','rv','{}',?)`);
+  expect(() => artifact.run('old-artifact', 'old', now)).toThrow(/ARTIFACT_STATE/);
+  artifact.run('current-artifact', 'a1', now);
+  checkpoint.run('progress', 'run1', 2, 'a1', 'progress', now);
+
+  expect(() => db.prepare("UPDATE stage_attempts SET status='succeeded',output_envelope='{}',completed_at=? WHERE id='a1'").run(now))
+    .toThrow(/ATTEMPT_EVIDENCE_REQUIRED/);
+  db.prepare(`UPDATE stage_attempts SET status='succeeded',output_envelope='{}',artifact_manifest_object_id='o',
+    evidence_manifest_object_id='o',changed_files_object_id='o',completed_at=? WHERE id='a1'`).run(now);
+  db.prepare("UPDATE stage_runs SET status='succeeded',completed_at=? WHERE id='s1'").run(now);
+  expect(() => artifact.run('late', 'a1', now)).toThrow(/ARTIFACT_STATE/);
+  expect(() => checkpoint.run('before-succeeded', 'run1', 3, 'a1', 'before_attempt', now)).toThrow(/CHECKPOINT_STATE/);
+  checkpoint.run('after', 'run1', 3, 'a1', 'after_attempt', now);
+  db.close();
+});
+
+it('requires every persisted hash field to be 64 lowercase hexadecimal characters', () => {
+  const db = database(); const now = new Date().toISOString();
+  for (const [table, column] of [
+    ['content_objects', 'sha256'], ['workflow_versions', 'content_hash'], ['role_versions', 'skill_hash'],
+    ['client_installations', 'credential_hash'], ['runs', 'lease_token_hash'], ['runs', 'recovery_credential_hash'],
+    ['confirmation_requests', 'action_hash'], ['confirmation_requests', 'nonce_hash'],
+    ['side_effect_operations', 'request_hash'], ['idempotency_requests', 'request_hash'],
+  ]) {
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table) as { sql: string };
+    expect(row.sql).toContain(`length(${column})=64`);
+    expect(row.sql).toContain(`${column} NOT GLOB '*[^0-9a-f]*'`);
+  }
+  expect(() => db.prepare("INSERT INTO content_objects(id,sha256,media_type,size_bytes,storage_key,created_at) VALUES('bad','ABC','text/plain',0,'bad',?)").run(now)).toThrow(/CHECK/);
+  seed(db);
+  expect(() => db.prepare("UPDATE runs SET lease_token_hash='ABC' WHERE id='run1'").run()).toThrow(/CHECK/);
+  expect(() => db.prepare("INSERT INTO idempotency_requests(id,principal_id,operation,request_id,request_hash,status,created_at) VALUES('bad-hash','i','op','r','xyz','in_progress',?)").run(now)).toThrow(/CHECK/);
+  expect(() => db.prepare("INSERT INTO confirmation_requests(id,run_id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,action_hash,nonce_hash,safety_baseline_object_id,requested_installation_id,status,requested_at,expires_at) VALUES('bad-confirmation','run1','s1','a1','x','x','ABC',?,'o','i','pending',?,?)").run(HASH, now, now)).toThrow(/CHECK/);
   db.close();
 });

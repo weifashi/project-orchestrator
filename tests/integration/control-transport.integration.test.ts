@@ -80,7 +80,7 @@ it('uses the isolated operation helper client over its private Unix socket', asy
   const directory = mkdtempSync(join(tmpdir(), 'operation-client-'));
   directories.push(directory);
   const socketPath = join(directory, 'operations.sock');
-  const server = await startOperationServer(socketPath, new DriverRegistry([{
+  const server = await startOperationServer(socketPath, DriverRegistry.forTestFixtures([{
     actionType: 'fixture', executable: '/bin/echo', allowedParameterKeys: ['version'],
     fixedArgs: [], timeoutMs: 1_000,
   }]));
@@ -149,7 +149,7 @@ it('requires a challenged installation-level root binding and rejects unbound, s
 
   const privateClient = await openJsonSocket(socketPath);
   expect(await bindRoot(privateClient, credential, 'root-session-a', directory, 'trusted_confirmation')).toEqual({ authenticated: true });
-  privateClient.send({ kind: 'submit_confirmation', payload: { confirmation_request_id: 'c', nonce: 'n', exact_action_hash: 'h', expires_at: now, decision: 'approve' } });
+  privateClient.send({ kind: 'submit_confirmation', payload: { confirmation_request_id: 'c', nonce: 'n', exact_action_hash: 'a'.repeat(64), expires_at: now, decision: 'approve' } });
   expect(await privateClient.read()).toMatchObject({ ok: true });
   expect(confirmations).toHaveLength(1);
 

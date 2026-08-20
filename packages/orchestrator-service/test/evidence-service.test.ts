@@ -5,13 +5,14 @@ import { EvidenceService, RecoveryService, workspaceFingerprint, type RecoveryCo
 import { runtimeFixture, workspace } from './runtime-fixture.js';
 
 const clean: string[] = [];
+const HASH = 'a'.repeat(64);
 afterEach(() => clean.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
 
 function seed(f: ReturnType<typeof runtimeFixture>, state: WorkspaceState = workspace) {
   const roleBundle = f.content.putCanonicalJson({
     roles: [{ roleVersionId: 'role-v1', envelope: { data: { slug: 'role' } } }],
   });
-  f.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,'h',?)").run(f.object.id, f.now);
+  f.db.prepare("INSERT INTO workflow_versions(id,workflow_template_id,version_number,description,safety_baseline_version,content_object_id,content_hash,published_at) VALUES('wv','workflow',1,'',1,?,?,?)").run(f.object.id, HASH, f.now);
   f.db.prepare("INSERT INTO runs(id,project_id,workflow_version_id,objective,input_envelope,origin_client_type,client_installation_id,origin_session_id,status,updated_at) VALUES('run','project','wv','','{}','codex','install','root','running',?)").run(f.now);
   f.db.prepare("INSERT INTO stage_runs(id,run_id,stage_key,role_version_id,status,max_attempts,created_at,updated_at) VALUES('stage','run','s','role-v1','running',1,?,?)").run(f.now, f.now);
   f.db.prepare("INSERT INTO stage_attempts(id,stage_run_id,attempt_number,status,input_envelope,started_at) VALUES('attempt','stage',1,'running','{}',?)").run(f.now);
@@ -48,6 +49,11 @@ it('copies only regular files rooted in the authenticated adapter project bound 
   rmSync(`${f.dir}/hard.txt`);
   const recorded = service.recordArtifact(input);
   expect(Buffer.from(f.content.read(recorded.contentObjectId)).toString()).toBe('proof');
+  f.db.prepare(`UPDATE stage_attempts SET status='succeeded',output_envelope='{}',artifact_manifest_object_id=?,
+    evidence_manifest_object_id=?,changed_files_object_id=?,completed_at=? WHERE id='attempt'`)
+    .run(f.object.id, f.object.id, f.object.id, f.now);
+  f.db.prepare("UPDATE stage_runs SET status='succeeded',completed_at=? WHERE id='stage'").run(f.now);
+  expect(() => service.recordArtifact(input)).toThrow('running latest attempt');
   f.db.close();
 });
 
@@ -56,7 +62,10 @@ it('allocates monotonically sequenced checkpoints and recovers from the latest s
   const service = new EvidenceService(f.db, f.content);
   const first = service.recordCheckpoint({ runId: 'run', kind: 'run_start', baselineFingerprint: workspaceFingerprint(workspace), state: workspace });
   expect(() => service.recordCheckpoint({ runId: 'run', stageAttemptId: 'attempt', kind: 'after_attempt', baselineFingerprint: workspaceFingerprint(workspace), state: workspace })).toThrow('succeeded');
-  f.db.prepare("UPDATE stage_attempts SET status='succeeded',output_envelope='{}',completed_at=? WHERE id='attempt'").run(f.now);
+  f.db.prepare(`UPDATE stage_attempts SET status='succeeded',output_envelope='{}',artifact_manifest_object_id=?,
+    evidence_manifest_object_id=?,changed_files_object_id=?,completed_at=? WHERE id='attempt'`)
+    .run(f.object.id, f.object.id, f.object.id, f.now);
+  f.db.prepare("UPDATE stage_runs SET status='succeeded',completed_at=? WHERE id='stage'").run(f.now);
   const second = service.recordCheckpoint({ runId: 'run', stageAttemptId: 'attempt', kind: 'after_attempt', baselineFingerprint: workspaceFingerprint(workspace), state: workspace });
   expect([first.sequence, second.sequence]).toEqual([1, 2]);
   expect(new RecoveryService(f.db, f.content).check('run', workspace, context)).toEqual({ ok: true });
