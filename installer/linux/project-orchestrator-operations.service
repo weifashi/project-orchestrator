@@ -1,0 +1,16 @@
+[Unit]
+Description=Project Orchestrator operation helper
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=@DATA_DIR@/runtime/service.env
+ExecStart=@PREFIX@/bin/project-orchestrator-operations
+Restart=on-failure
+RestartSec=2
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

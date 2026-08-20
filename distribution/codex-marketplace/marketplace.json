@@ -1,0 +1,12 @@
+{
+  "name": "project-orchestrator-local",
+  "interface": { "displayName": "Project Orchestrator Local" },
+  "plugins": [
+    {
+      "name": "project-orchestrator",
+      "source": { "source": "local", "path": "./plugins/project-orchestrator" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

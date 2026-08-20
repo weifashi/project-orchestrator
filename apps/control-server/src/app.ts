@@ -7,3 +7,4 @@ export * from './ipc/control-dispatcher.js';
 export * from './ipc/operation-helper-client.js';
 export * from './ipc/principal.js';
 export * from './runtime.js';
+export * from './distribution.js';

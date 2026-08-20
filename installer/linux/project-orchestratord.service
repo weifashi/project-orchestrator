@@ -1,0 +1,19 @@
+[Unit]
+Description=Local Project Orchestrator
+After=project-orchestrator-operations.service
+Requires=project-orchestrator-operations.service
+
+[Service]
+Type=simple
+EnvironmentFile=@DATA_DIR@/runtime/service.env
+ExecStart=@PREFIX@/bin/project-orchestratord
+Restart=on-failure
+RestartSec=2
+StartLimitIntervalSec=60
+StartLimitBurst=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
