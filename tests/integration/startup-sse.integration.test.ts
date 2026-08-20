@@ -47,6 +47,20 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
+async function bootstrapCookie(baseUrl: string, origin: string, token: string) {
+  const response = await fetch(`${baseUrl}/bootstrap`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      origin,
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ token }),
+  });
+  expect(response.status).toBe(302);
+  return String(response.headers.get('set-cookie')).split(';', 1)[0]!;
+}
+
 it('derives server epoch from the maximum fenced run and emits deterministic interruption events before traffic', () => {
   const { db } = runtimeFixture();
   const now = new Date().toISOString();
@@ -154,7 +168,9 @@ it('keeps SSE open, resumes after Last-Event-ID, and streams newly appended even
   const address=app.server.address();
   if(address===null||typeof address==='string')throw new Error('listener unavailable');
   const abort=new AbortController();
-  const response=await fetch(`http://127.0.0.1:${address.port}/api/stream/events?run_id=run`,{headers:{cookie:`po_session=${Buffer.from('web').toString('base64url')}`,'last-event-id':'1',origin:'http://127.0.0.1'},signal:abort.signal});
+  const baseUrl=`http://127.0.0.1:${address.port}`;
+  const cookie=await bootstrapCookie(baseUrl,'http://127.0.0.1','web');
+  const response=await fetch(`${baseUrl}/api/stream/events?run_id=run`,{headers:{cookie,'last-event-id':'1',origin:'http://127.0.0.1'},signal:abort.signal});
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toContain('text/event-stream');
   const reader=response.body!.getReader();
@@ -179,7 +195,8 @@ it('awaits SIGTERM shutdown and removes the accepting Agent socket before exit',
   const child=spawn(process.execPath,['apps/control-server/dist/main.js'],{cwd:process.cwd(),env:{...process.env,PROJECT_ORCHESTRATOR_DATA:directory,PROJECT_ORCHESTRATOR_DB:databasePath,PROJECT_ORCHESTRATOR_OBJECTS:join(directory,'objects'),PROJECT_ORCHESTRATOR_SOCKET:socketPath,PROJECT_ORCHESTRATOR_OPERATION_SOCKET:join(directory,'operations.sock'),PROJECT_ORCHESTRATOR_WEB_TOKEN_FILE:webTokenPath,PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE:adapterPath,PROJECT_ORCHESTRATOR_PORT:String(port)},stdio:['ignore','pipe','pipe']});
   const deadline=Date.now()+5_000;while(!existsSync(socketPath)&&Date.now()<deadline)await new Promise((resolve)=>setTimeout(resolve,20));
   expect(existsSync(socketPath)).toBe(true);const adapter=connect(socketPath);adapter.setEncoding('utf8');await once(adapter,'connect');adapter.write(`${JSON.stringify({kind:'bootstrap',credential,channel:'agent',scope:'root',canonical_project_path:directory})}\n`);const [challengeChunk]=await once(adapter,'data') as [string];const challenge=JSON.parse(challengeChunk.trim()) as {challenge:string};adapter.write(`${JSON.stringify({kind:'bind_root_session',challenge:challenge.challenge,session_id:'root',proof:createHmac('sha256',credential).update(`${challenge.challenge}\0root\0${directory}`).digest('base64url')})}\n`);await once(adapter,'data');
-  const response=await fetch(`http://127.0.0.1:${port}/api/stream/events?run_id=missing`,{headers:{cookie:`po_session=${Buffer.from('web').toString('base64url')}`}});expect(response.status).toBe(200);const reader=response.body!.getReader();const pendingRead=reader.read();
+  const origin=`http://127.0.0.1:${port}`;const cookie=await bootstrapCookie(origin,origin,'web');
+  const response=await fetch(`${origin}/api/stream/events?run_id=missing`,{headers:{cookie}});expect(response.status).toBe(200);const reader=response.body!.getReader();const pendingRead=reader.read();
   child.kill('SIGTERM');const [code,signal]=await once(child,'exit') as [number|null,NodeJS.Signals|null];
   const closed=await Promise.race([pendingRead,new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('SSE_NOT_CLOSED')),2_000))]);
   expect(closed.done).toBe(true);expect({code,signal}).toEqual({code:0,signal:null});expect(existsSync(socketPath)).toBe(false);

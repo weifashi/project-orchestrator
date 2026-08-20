@@ -23,6 +23,15 @@ export default defineWorkspace([
   {
     resolve: { alias: aliases },
     test: {
+      name: 'web-unit',
+      include: ['apps/web-console/test/**/*.test.ts?(x)'],
+      environment: 'jsdom',
+      maxWorkers: 2,
+    },
+  },
+  {
+    resolve: { alias: aliases },
+    test: {
       name: 'integration',
       include: [
         'tests/integration/**/*.test.ts',
