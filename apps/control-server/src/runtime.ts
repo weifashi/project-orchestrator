@@ -126,13 +126,15 @@ export async function startControlServer(config: ControlConfig = loadConfig()): 
   const dispatcher = createControlDispatcher({ db, runs, leases, confirmations, operations });
   const agent = await startAgentListener({
     socketPath: config.controlSocketPath,
-    authenticate: createCredentialAuthenticator(db, config.adapterCredential),
+    authenticate: createCredentialAuthenticator(db),
     maxFrameBytes: config.maxFrameBytes,
     dispatch: dispatcher.dispatch,
     submitConfirmation: dispatcher.submitConfirmation,
   });
   const web = buildWebListener({
     db, content, webToken: config.webToken, csrfToken: config.csrfToken, allowedOrigin: config.allowedOrigin,
+    ...(config.allowedHosts === undefined ? {} : { allowedHosts: config.allowedHosts }),
+    ...(config.staticDirectory === undefined ? {} : { staticDirectory: config.staticDirectory }),
   });
   try {
     await web.listen({ host: config.webHost, port: config.webPort });

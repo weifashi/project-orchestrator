@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "project-orchestrator-local",
+  "description": "Local Project Orchestrator plugin marketplace.",
+  "owner": { "name": "weifashi" },
+  "plugins": [
+    {
+      "name": "project-orchestrator",
+      "description": "Local multi-role project workflows.",
+      "version": "0.1.0",
+      "source": "./plugins/project-orchestrator"
+    }
+  ]
+}

@@ -21,6 +21,8 @@ export type ControlConfig = {
   csrfToken: string;
   adapterCredential: string;
   allowedOrigin: string;
+  allowedHosts?: readonly string[];
+  staticDirectory?: string;
   maxFrameBytes: number;
 };
 
@@ -55,7 +57,7 @@ const generatedSecret = (): string => randomBytes(32).toString("base64url");
 
 function webTokenPath(env: NodeJS.ProcessEnv, dataDirectory: string): string {
   return resolve(
-    env["PROJECT_ORCHESTRATOR_WEB_TOKEN_FILE"] ?? `${dataDirectory}/web-token`,
+    env["PROJECT_ORCHESTRATOR_WEB_TOKEN_FILE"] ?? `${dataDirectory}/runtime/web-token`,
   );
 }
 
@@ -71,7 +73,7 @@ export function rotateWebCredentials(
 ): void {
   const dataDirectory = resolve(
     env["PROJECT_ORCHESTRATOR_DATA"] ??
-      `${env["HOME"] ?? "."}/.local/share/project-orchestrator`,
+      `${env["HOME"] ?? "."}/.project-orchestrator`,
   );
   ensurePrivateDirectory(dataDirectory);
   const path = webTokenPath(env, dataDirectory);
@@ -84,41 +86,39 @@ export function loadConfig(
 ): ControlConfig {
   const dataDirectory = resolve(
     env["PROJECT_ORCHESTRATOR_DATA"] ??
-      `${process.env["HOME"] ?? "."}/.local/share/project-orchestrator`,
+      `${env["HOME"] ?? "."}/.project-orchestrator`,
   );
   ensurePrivateDirectory(dataDirectory);
   const host = env["PROJECT_ORCHESTRATOR_HOST"] ?? "127.0.0.1";
   if (host !== "127.0.0.1")
     throw new Error("POLICY_VIOLATION: web listener must be loopback");
   const configuredWebTokenPath = webTokenPath(env, dataDirectory);
-  const adapterPath = env["PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE"];
-  if (adapterPath === undefined)
-    throw new Error("CONFIG_MISSING: adapter credential file");
-  if (configuredWebTokenPath === resolve(adapterPath))
-    throw new Error("POLICY_VIOLATION: credentials must use separate files");
   ensureWebCredentials(configuredWebTokenPath);
   const webToken = secret(configuredWebTokenPath);
   const csrfToken = secret(`${configuredWebTokenPath}.csrf`);
-  const adapterCredential = secret(adapterPath);
-  if (
-    webToken === adapterCredential ||
-    csrfToken === adapterCredential ||
-    webToken === csrfToken
-  ) {
+  const adapterPath = env["PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE"];
+  const adapterCredential = adapterPath === undefined ? "" : secret(adapterPath);
+  if (webToken === csrfToken || (adapterCredential.length > 0 && (webToken === adapterCredential || csrfToken === adapterCredential))) {
     throw new Error("POLICY_VIOLATION: credentials must use separate values");
   }
   const controlSocketPath = resolve(
-    env["PROJECT_ORCHESTRATOR_SOCKET"] ?? `${dataDirectory}/control.sock`,
+    env["PROJECT_ORCHESTRATOR_SOCKET"] ?? `${dataDirectory}/runtime/control.sock`,
   );
   const operationSocketPath = resolve(
     env["PROJECT_ORCHESTRATOR_OPERATION_SOCKET"] ??
-      `${dataDirectory}/operations.sock`,
+      `${dataDirectory}/runtime/operations.sock`,
   );
   ensurePrivateDirectory(dirname(controlSocketPath));
   ensurePrivateDirectory(dirname(operationSocketPath));
   const webPort = Number(env["PROJECT_ORCHESTRATOR_PORT"] ?? 3847);
   if (!Number.isInteger(webPort) || webPort < 0 || webPort > 65_535)
     throw new Error("CONFIG_INVALID: web port");
+  const allowedOrigin = env["PROJECT_ORCHESTRATOR_ORIGIN"] ?? `http://127.0.0.1:${webPort}`;
+  const allowedHosts = (env["PROJECT_ORCHESTRATOR_ALLOWED_HOSTS"] ?? "127.0.0.1,localhost")
+    .split(',').map((value) => value.trim()).filter((value) => value.length > 0);
+  if (allowedHosts.length === 0 || allowedHosts.some((value) => value.includes('/') || value.includes(':'))) {
+    throw new Error('CONFIG_INVALID: allowed hosts');
+  }
   return {
     dataDirectory,
     databasePath: resolve(
@@ -134,8 +134,9 @@ export function loadConfig(
     webToken,
     csrfToken,
     adapterCredential,
-    allowedOrigin:
-      env["PROJECT_ORCHESTRATOR_ORIGIN"] ?? `http://127.0.0.1:${webPort}`,
+    allowedOrigin,
+    allowedHosts,
+    ...(env["PROJECT_ORCHESTRATOR_WEB_STATIC"] === undefined ? {} : { staticDirectory: resolve(env["PROJECT_ORCHESTRATOR_WEB_STATIC"]) }),
     maxFrameBytes: 256 * 1024,
   };
 }

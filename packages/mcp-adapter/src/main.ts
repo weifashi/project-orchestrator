@@ -6,7 +6,6 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import {
   createConservativeCapabilities,
-  defaultCredentialPath,
   defaultSessionStatePath,
   IpcClient,
   loadAdapterCredential,
@@ -29,10 +28,11 @@ function diagnostic(error: unknown): string {
 async function main(): Promise<void> {
   const clientType = argument('--client');
   if (clientType !== 'codex' && clientType !== 'claude') throw new Error('CLIENT_TYPE_INVALID');
-  const credential = loadAdapterCredential(process.env['PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE'] ?? defaultCredentialPath());
+  const credential = loadAdapterCredential(process.env['PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE']
+    ?? resolve(process.env['HOME'] ?? '.', `.project-orchestrator/runtime/adapter-${clientType}-credential`));
   const sessionId = process.env['PROJECT_ORCHESTRATOR_ROOT_SESSION_ID'] ?? randomUUID();
   const socketPath = resolve(process.env['PROJECT_ORCHESTRATOR_SOCKET']
-    ?? `${process.env['HOME'] ?? '.'}/.local/share/project-orchestrator/control.sock`);
+    ?? `${process.env['HOME'] ?? '.'}/.project-orchestrator/runtime/control.sock`);
   const ipc = credential.withSecret((secret) => new IpcClient({
     socketPath,
     credential: secret,

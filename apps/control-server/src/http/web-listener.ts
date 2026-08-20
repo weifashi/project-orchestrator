@@ -28,6 +28,7 @@ type WebListenerInput = {
   webToken: string;
   csrfToken: string;
   allowedOrigin: string;
+  allowedHosts?: readonly string[];
   handlers?: ConfigHandlers;
   ssePollIntervalMs?: number;
   staticDirectory?: string;
@@ -43,6 +44,8 @@ export function buildWebListener(input: WebListenerInput): WebListener {
     eventStreams: EventStreamConnections = new Set();
   app.decorate("closeEventStreams", () => closeEventStreams(eventStreams));
   const sessionCookie = randomBytes(32).toString("base64url");
+  const allowedHosts = new Set(input.allowedHosts ?? ["127.0.0.1", "localhost"]);
+  const cookieSecurity = input.allowedOrigin.startsWith("https://") ? "; Secure" : "";
   const matchesBootstrapToken = (token: string | undefined): boolean => {
     const supplied = Buffer.from(token ?? "", "utf8");
     const expected = Buffer.from(input.webToken, "utf8");
@@ -52,7 +55,7 @@ export function buildWebListener(input: WebListenerInput): WebListener {
   };
   app.addHook("onRequest", async (request, reply) => {
     const host = request.headers.host?.split(":")[0];
-    if (host !== "127.0.0.1" && host !== "localhost")
+    if (host === undefined || !allowedHosts.has(host))
       return reply.code(403).send({ error: "invalid host" });
     if (
       request.headers.origin !== undefined &&
@@ -62,6 +65,11 @@ export function buildWebListener(input: WebListenerInput): WebListener {
     const authenticated = (request.headers.cookie ?? "")
       .split(";")
       .some((part) => part.trim() === `po_session=${sessionCookie}`);
+    if (request.url === "/health") {
+      if (request.method !== "GET" && request.method !== "HEAD")
+        return reply.code(405).send({ error: "method not allowed" });
+      return;
+    }
     if (request.url === "/bootstrap") {
       if (request.method !== "GET" && request.method !== "POST")
         return reply.code(405).send({ error: "method not allowed" });
@@ -117,7 +125,7 @@ export function buildWebListener(input: WebListenerInput): WebListener {
     if (authenticated && reply.statusCode < 400)
       reply.header(
         "Set-Cookie",
-        `po_session=${sessionCookie}; HttpOnly; SameSite=Strict; Path=/`,
+        `po_session=${sessionCookie}; HttpOnly; SameSite=Strict; Path=/${cookieSecurity}`,
       );
     return payload;
   });
@@ -129,6 +137,9 @@ export function buildWebListener(input: WebListenerInput): WebListener {
     );
   registerConfigRoutes(app, handlers);
   registerReadRoutes(app, input.db, input.content);
+  app.get("/health", async (_request, reply) =>
+    reply.header("Cache-Control", "no-store").send({ ok: true }),
+  );
   app.get("/api/read/session", async (_request, reply) =>
     reply
       .header("Cache-Control", "no-store")
@@ -165,7 +176,7 @@ export function buildWebListener(input: WebListenerInput): WebListener {
       .header("Cache-Control", "no-store")
       .header(
         "Set-Cookie",
-        `po_session=${sessionCookie}; HttpOnly; SameSite=Strict; Path=/`,
+        `po_session=${sessionCookie}; HttpOnly; SameSite=Strict; Path=/${cookieSecurity}`,
       )
       .redirect("/");
   });
