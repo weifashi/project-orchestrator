@@ -3,7 +3,13 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/coverage/**', '**/playwright-report/**', 'release/**'],
+    ignores: [
+      '.worktrees/**',
+      '**/dist/**',
+      '**/coverage/**',
+      '**/playwright-report/**',
+      '**/release/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
