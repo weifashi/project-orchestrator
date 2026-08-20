@@ -31,6 +31,28 @@ grep -q 'UMask=0077' "$home/.config/systemd/user/project-orchestratord.service"
 grep -q 'project-orchestrator-operations.service' "$home/.config/systemd/user/project-orchestratord.service"
 test "$(find "$home/.local/share/project-orchestrator/releases" -mindepth 1 -maxdepth 1 -type d | wc -l)" = 1
 
+# The installer must keep the caller's PATH while registering clients. In Coder,
+# Codex and Claude commonly live in ~/.npm-global/bin rather than /usr/bin.
+client_bin="$tmp/client-bin"
+client_log="$tmp/client-calls.log"
+mkdir -p "$client_bin"
+for client in codex claude; do
+  cat > "$client_bin/$client" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\n' '$client' "\$*" >> '$client_log'
+case "\$*" in *--json*) printf '[]\n';; esac
+EOF
+  chmod +x "$client_bin/$client"
+done
+plugin_home="$tmp/plugin-home"
+mkdir -p "$plugin_home"
+HOME="$plugin_home" PATH="$client_bin:$PATH" PROJECT_ORCHESTRATOR_SKIP_MANIFEST=1 \
+  bash "$release/install.sh" --both --no-start --prefix "$plugin_home/.local" >/dev/null
+grep -q '^codex plugin marketplace list --json$' "$client_log"
+grep -q '^codex plugin add project-orchestrator@project-orchestrator-local$' "$client_log"
+grep -q '^claude plugin marketplace list --json$' "$client_log"
+grep -q '^claude plugin install project-orchestrator@project-orchestrator-local --scope user$' "$client_log"
+
 if HOME="$home" bash "$release/install.sh" --prefix relative --no-start 2>/dev/null; then
   echo 'relative prefix unexpectedly accepted' >&2
   exit 1

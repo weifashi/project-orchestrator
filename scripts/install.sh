@@ -26,6 +26,7 @@ done
 command -v node >/dev/null || die 'Node.js 22 or newer is required'
 node_major=$(node -p 'Number(process.versions.node.split(".")[0])')
 ((node_major >= 22)) || die 'Node.js 22 or newer is required'
+node_dir=$(dirname "$(command -v node)")
 
 release_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 [[ -f $release_root/VERSION && -x $release_root/bin/project-orchestrator ]] || die 'run this installer from a built release directory'
@@ -72,7 +73,7 @@ origin_host=${origin#*://}; origin_host=${origin_host%%/*}; origin_host=${origin
 allowed_hosts=${PROJECT_ORCHESTRATOR_ALLOWED_HOSTS:-127.0.0.1,localhost,$origin_host}
 cat > "$data/runtime/service.env" <<EOF
 HOME=$HOME
-PATH=$prefix/bin:/usr/local/bin:/usr/bin:/bin
+PATH=$prefix/bin:$node_dir:/usr/local/bin:/usr/bin:/bin
 PROJECT_ORCHESTRATOR_DATA=$data
 PROJECT_ORCHESTRATOR_DB=$data/orchestrator.sqlite
 PROJECT_ORCHESTRATOR_OBJECTS=$data/objects
@@ -87,7 +88,11 @@ PROJECT_ORCHESTRATOR_ORIGIN=$origin
 PROJECT_ORCHESTRATOR_ALLOWED_HOSTS=$allowed_hosts
 EOF
 chmod 600 "$data/runtime/service.env"
-set -a; source "$data/runtime/service.env"; set +a
+export PROJECT_ORCHESTRATOR_DATA="$data"
+export PROJECT_ORCHESTRATOR_DB="$data/orchestrator.sqlite"
+export PROJECT_ORCHESTRATOR_OBJECTS="$data/objects"
+export PROJECT_ORCHESTRATOR_CODEX_CREDENTIAL_FILE="$data/runtime/adapter-codex-credential"
+export PROJECT_ORCHESTRATOR_CLAUDE_CREDENTIAL_FILE="$data/runtime/adapter-claude-credential"
 "$prefix/bin/project-orchestrator" initialize
 
 user_units=$HOME/.config/systemd/user
