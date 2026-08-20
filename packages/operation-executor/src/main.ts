@@ -1,0 +1,1 @@
+import { DriverRegistry } from './driver-registry.js';import { startOperationServer } from './server.js';const [socketPath,registryPath]=process.argv.slice(2);if(!socketPath||!registryPath)throw new Error('usage: operation-executor SOCKET REGISTRY');await startOperationServer(socketPath,DriverRegistry.fromFile(registryPath));

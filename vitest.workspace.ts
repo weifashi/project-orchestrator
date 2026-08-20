@@ -5,6 +5,8 @@ const aliases = {
   '@project-orchestrator/sqlite-store': new URL('./packages/sqlite-store/src/index.ts', import.meta.url).pathname,
   '@project-orchestrator/content-store': new URL('./packages/content-store/src/index.ts', import.meta.url).pathname,
   '@project-orchestrator/orchestrator-service': new URL('./packages/orchestrator-service/src/index.ts', import.meta.url).pathname,
+  '@project-orchestrator/workflow-engine': new URL('./packages/workflow-engine/src/index.ts', import.meta.url).pathname,
+  '@project-orchestrator/control-server': new URL('./apps/control-server/src/app.ts', import.meta.url).pathname,
 };
 
 export default defineWorkspace([

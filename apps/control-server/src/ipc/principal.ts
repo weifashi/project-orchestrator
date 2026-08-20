@@ -1,0 +1,1 @@
+import { createHash,timingSafeEqual } from 'node:crypto';export const secureEqual=(a:string,b:string):boolean=>{const left=createHash('sha256').update(a).digest(),right=createHash('sha256').update(b).digest();return timingSafeEqual(left,right);};

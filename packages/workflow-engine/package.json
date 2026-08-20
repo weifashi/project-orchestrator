@@ -1,0 +1,1 @@
+{"name":"@project-orchestrator/workflow-engine","version":"0.0.0","private":true,"type":"module","exports":"./dist/index.js","types":"./dist/index.d.ts","scripts":{"build":"tsc -p tsconfig.json","typecheck":"tsc -p tsconfig.json --noEmit"},"dependencies":{"@project-orchestrator/contracts":"workspace:*"},"devDependencies":{"fast-check":"^4.3.0"}}
