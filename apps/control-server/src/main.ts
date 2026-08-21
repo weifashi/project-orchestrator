@@ -1,5 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {
+  captureGitWorkspaceSnapshot,
+  IpcClient,
+  loadAdapterCredential,
+} from '@project-orchestrator/adapter-core';
 import { loadConfig, rotateWebCredentials } from "./config.js";
 import { initializeLocalState, inspectLocalState } from './distribution.js';
 import { startControlServer } from "./runtime.js";
@@ -15,6 +21,62 @@ const stateInput = {
   },
 };
 
+function option(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index < 0 ? undefined : process.argv[index + 1];
+}
+
+function requireOption(name: string): string {
+  const value = option(name);
+  if (value === undefined || value.length === 0) throw new Error(`CLI_ARGUMENT_REQUIRED: ${name}`);
+  return value;
+}
+
+async function startRunFromCli(): Promise<void> {
+  const client = option('--client') ?? 'codex';
+  if (client !== 'codex' && client !== 'claude') throw new Error('CLI_ARGUMENT_INVALID: --client');
+  const workflowSlug = option('--workflow') ?? 'new-project';
+  const objective = requireOption('--objective');
+  const rawInput = option('--input-json') ?? '{}';
+  let runInput: unknown;
+  try {
+    runInput = JSON.parse(rawInput) as unknown;
+  } catch {
+    throw new Error('CLI_ARGUMENT_INVALID: --input-json');
+  }
+  const workspace = captureGitWorkspaceSnapshot(process.cwd());
+  const credential = loadAdapterCredential(stateInput.credentialFiles[client]);
+  const ipc = credential.withSecret((secret) => new IpcClient({
+    socketPath: resolve(process.env['PROJECT_ORCHESTRATOR_SOCKET'] ?? `${dataDirectory}/runtime/control.sock`),
+    credential: secret,
+    rootSessionId: randomUUID(),
+    canonicalProjectPath: workspace.canonicalProjectPath,
+  }));
+  try {
+    await ipc.connect();
+    const result = await ipc.request({
+      kind: 'tool',
+      tool: 'create_run',
+      payload: {
+        request_id: randomUUID(),
+        workflow_slug: workflowSlug,
+        objective,
+        input: runInput,
+        workspace: {
+          repository_head: workspace.repositoryHead,
+          staged_patch: workspace.stagedPatch,
+          unstaged_patch: workspace.unstagedPatch,
+          untracked_manifest: workspace.untrackedManifest,
+          submodule_manifest: workspace.submoduleManifest,
+        },
+      },
+    });
+    process.stdout.write(`${JSON.stringify({ ...(result as Record<string, unknown>), status: 'created' })}\n`);
+  } finally {
+    await ipc.close();
+  }
+}
+
 if (command === "--rotate-web-credentials") {
   rotateWebCredentials();
   process.stdout.write(
@@ -25,7 +87,7 @@ if (command === "--rotate-web-credentials") {
   process.stdout.write('Local database, built-in workflows, and client installations initialized.\n');
 } else if (command === 'version' || command === '--version') {
   const versionFile = process.env['PROJECT_ORCHESTRATOR_VERSION_FILE'];
-  process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.2'}\n`);
+  process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.3'}\n`);
 } else if (command === 'url') {
   process.stdout.write(`${loadConfig().allowedOrigin}\n`);
 } else if (command === 'doctor') {
@@ -41,6 +103,8 @@ if (command === "--rotate-web-credentials") {
   const result = { ...state, service, listener: '127.0.0.1' };
   process.stdout.write(`${JSON.stringify(result, null, process.argv.includes('--json') ? 0 : 2)}\n`);
   if (!state.ok || !service) process.exitCode = 1;
+} else if (command === 'start') {
+  await startRunFromCli();
 } else {
   const termination = new Promise<void>((resolve) =>
     process.once("SIGTERM", resolve),

@@ -68,6 +68,9 @@ importers:
       '@fastify/static':
         specifier: ^8.2.0
         version: 8.3.0
+      '@project-orchestrator/adapter-core':
+        specifier: workspace:*
+        version: link:../../packages/adapter-core
       '@project-orchestrator/content-store':
         specifier: workspace:*
         version: link:../../packages/content-store

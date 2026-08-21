@@ -22,6 +22,23 @@ The Control Server's immutable RunSnapshot and current Run context are authorita
 9. Repeat context → frontier → role → root submission until no executable stage remains.
 10. Request finalization. The Control Server alone decides whether mandatory stages, confirmations, evidence, output contracts, and safety gates permit completion.
 
+## Required startup fallback
+
+Some Coder-hosted Codex sessions expose the installed Skill but do not inject local MCP tools into the Agent tool list. This must not turn a user’s explicit start request into silent research.
+
+When `create_run` is absent from the currently available tools, use the local Agent-shell fallback **before** repository investigation or role delegation:
+
+```bash
+project-orchestrator start \
+  --workflow new-project \
+  --objective '<user objective>' \
+  --input-json '<JSON input>'
+```
+
+- Run it from the actual Git project directory, never from a parent folder such as `/workspace`.
+- The command creates and records the Run but deliberately does not claim a lease; a host without MCP write tools cannot safely continue stage execution.
+- Report the returned `runId` and direct the user to the Web Run page. If the directory is not a committed Git workspace, explain that the project directory must first be selected or initialized; do not invent a path.
+
 ## Evidence and gate integrity
 
 - Requirements and UI roles cannot claim user confirmation; only a trusted confirmation event can.

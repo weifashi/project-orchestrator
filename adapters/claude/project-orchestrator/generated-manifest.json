@@ -26,7 +26,7 @@
     "operations/references/completion-contract.md": "996ab4bf53b94545460fcbced0f0ca946421763ce1ee412d417d5ae3a12842e5",
     "operations/references/input-schema.json": "3f660c568bc7c96d8f1153f4400d2a6f629f7871e1fb3f9f61370a5f12b25726",
     "operations/references/output-schema.json": "db0461c07dd0d36963761aa88832d617dae3fdd4dda299dcedbeb5837559054d",
-    "project-orchestrator/SKILL.md": "138feccdd40fa9279712b5e646c12189edeab0dcf3790f26e71542f6f17fa513",
+    "project-orchestrator/SKILL.md": "2e78a5ebc0dab93ed6860f414ba0597ebf6427252140e62cafcdf5d8ea138bdb",
     "project-orchestrator/agents/openai.yaml": "cf56d960a35fac4929005d50feea890cd47d1a18356674fe8b047d38eb0ec256",
     "project-orchestrator/references/error-recovery.md": "8e620cc7eb41d7a93f95dd77c7e37cc0c3d647c46e1dcdcfafdc11b33fe94f9e",
     "project-orchestrator/references/tool-reference.md": "1c85088b688431dbc2794ab4b489307621c1b2ab9a8292b2b0b815af9d5da729",
