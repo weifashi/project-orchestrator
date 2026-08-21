@@ -5,7 +5,9 @@ import { useApi } from "../api/context";
 import { ErrorPanel } from "../components/error-panel";
 import { VersionBanner } from "../components/version-banner";
 import { useLoad } from "./use-load";
+import { useI18n } from "../i18n";
 export function WorkflowEditorPage() {
+  const { t, label } = useI18n();
   const { id = "" } = useParams(),
     api = useApi(),
     loaded = useLoad(() => api.workflows.getDraft(id), [api, id]);
@@ -16,15 +18,15 @@ export function WorkflowEditorPage() {
   if (loaded.error)
     return (
       <div className="page">
-        <h1 tabIndex={-1}>流程编辑器</h1>
+        <h1 tabIndex={-1}>{t("workflowEditor")}</h1>
         <ErrorPanel error={loaded.error} />
       </div>
     );
   if (!draft)
     return (
       <div className="page">
-        <h1 tabIndex={-1}>流程编辑器</h1>
-        <p role="status">读取草稿…</p>
+        <h1 tabIndex={-1}>{t("workflowEditor")}</h1>
+        <p role="status">{t("loading")}</p>
       </div>
     );
   const stages = draft.envelope.data.stages;
@@ -109,10 +111,10 @@ export function WorkflowEditorPage() {
     try {
       const saved = await api.workflows.saveDraft(id, draft);
       setDraft(saved);
-      setMessage(`草稿已保存 · revision ${saved.revision}`);
+      setMessage(`${t("savedMessage")} · ${t("revision")} ${saved.revision}`);
     } catch (error) {
       setMessage(
-        error instanceof Error ? `保存失败：${error.message}` : "保存失败",
+        error instanceof Error ? `${t("saveDraft")}：${error.message}` : t("operationFailed"),
       );
     } finally {
       setBusy(false);
@@ -129,10 +131,10 @@ export function WorkflowEditorPage() {
         draft.revision,
       );
       setDraft(await api.workflows.getDraft(id));
-      setMessage("已发布不可变新版本；现有 Run 不受影响。");
+      setMessage(t("publishedMessage"));
     } catch (error) {
       setMessage(
-        error instanceof Error ? `发布校验失败：${error.message}` : "发布失败",
+        error instanceof Error ? `${t("publish")}：${error.message}` : t("operationFailed"),
       );
     } finally {
       setBusy(false);
@@ -143,11 +145,11 @@ export function WorkflowEditorPage() {
       <div className="page-head">
         <div>
           <span className="eyebrow">
-            Workflow draft · revision {draft.revision}
+            {t("workflowDraft")} · {t("revision")} {draft.revision}
           </span>
-          <h1 tabIndex={-1}>{draft.envelope.data.slug}</h1>
+          <h1 tabIndex={-1}>{label(draft.envelope.data.slug)}</h1>
           <p className="muted">
-            用受约束的列表编辑 DAG，避免自由画布产生隐藏依赖。
+            {t("safeListEditor")}
           </p>
         </div>
       </div>
@@ -168,56 +170,56 @@ export function WorkflowEditorPage() {
                       ? { ...current, envelope: published.envelope }
                       : published,
                   );
-                  setMessage("已把当前发布版本复制到草稿，尚未保存。");
+                  setMessage(t("draftLoaded"));
                 })
                 .catch((error: unknown) =>
                   setMessage(
                     error instanceof Error
-                      ? `复制失败：${error.message}`
-                      : "复制失败",
+                      ? `${t("copyTemplate")}：${error.message}`
+                      : t("operationFailed"),
                   ),
                 );
             }}
           >
-            复制模板
+            {t("copyTemplate")}
           </button>
           <button
             className="button"
             disabled={busy}
             onClick={() => void save()}
           >
-            保存草稿
+            {t("saveDraft")}
           </button>
           <button
             className="button primary"
             disabled={busy}
             onClick={() => void publish()}
           >
-            发布新版本
+            {t("publish")}
           </button>
         </div>
       </div>
       <div className="grid">
         <section className="card span-8">
-          <h2>阶段与约束</h2>
+          <h2>{t("stageAndConstraints")}</h2>
           <div className="stage-list">
             {stages.map((stage, index) => (
               <article className="stage" key={stage.key}>
                 <div className="stage-head">
                   <div className="stage-title">
                     <strong>
-                      {index + 1}. {stage.key}
+                      {index + 1}. {label(stage.key)}
                     </strong>
                     {stage.mandatory_gate && (
-                      <span className="lock" aria-label="强制安全门，无法关闭">
-                        ▣ mandatory gate
+                      <span className="lock" aria-label={t("mandatoryGateLocked")}>
+                        ▣ {t("mandatoryGate")}
                       </span>
                     )}
                   </div>
                   <div className="button-row">
                     <button
                       className="button"
-                      aria-label={`上移 ${stage.key}`}
+                      aria-label={`${t("moveUp")} ${label(stage.key)}`}
                       disabled={index === 0}
                       onClick={() => move(index, -1)}
                     >
@@ -225,7 +227,7 @@ export function WorkflowEditorPage() {
                     </button>
                     <button
                       className="button"
-                      aria-label={`下移 ${stage.key}`}
+                      aria-label={`${t("moveDown")} ${label(stage.key)}`}
                       disabled={index === stages.length - 1}
                       onClick={() => move(index, 1)}
                     >
@@ -235,7 +237,7 @@ export function WorkflowEditorPage() {
                 </div>
                 <div className="form-grid">
                   <label className="field">
-                    <span>角色版本</span>
+                    <span>{t("roleVersionLabel")}</span>
                     <input
                       value={stage.role_version_id}
                       onChange={(e) =>
@@ -244,7 +246,7 @@ export function WorkflowEditorPage() {
                     />
                   </label>
                   <label className="field">
-                    <span>失败策略</span>
+                    <span>{t("failurePolicy")}</span>
                     <select
                       value={stage.failure_policy}
                       onChange={(e) =>
@@ -254,16 +256,14 @@ export function WorkflowEditorPage() {
                         })
                       }
                     >
-                      <option value="pause">pause</option>
-                      <option value="fail">fail</option>
-                      <option value="retry_then_fail">retry_then_fail</option>
-                      <option value="trigger_iteration">
-                        trigger_iteration
-                      </option>
+                      <option value="pause">{t("pause")}</option>
+                      <option value="fail">{t("fail")}</option>
+                      <option value="retry_then_fail">{t("retry_then_fail")}</option>
+                      <option value="trigger_iteration">{t("trigger_iteration")}</option>
                     </select>
                   </label>
                   <label className="field">
-                    <span>最大尝试次数</span>
+                    <span>{t("maxAttempts")}</span>
                     <input
                       type="number"
                       min="1"
@@ -276,7 +276,7 @@ export function WorkflowEditorPage() {
                     />
                   </label>
                   <label className="field">
-                    <span>迭代组</span>
+                    <span>{t("iterationGroup")}</span>
                     <input
                       value={stage.iteration_group_key ?? ""}
                       onChange={(e) => {
@@ -316,7 +316,7 @@ export function WorkflowEditorPage() {
                         updateStage(index, { optional: e.target.checked })
                       }
                     />
-                    可选阶段
+                    {t("optionalStage")}
                   </label>
                   <label className="check">
                     <input
@@ -328,17 +328,17 @@ export function WorkflowEditorPage() {
                         })
                       }
                     />
-                    Agent 会话确认点
+                    {t("confirmationPoint")}
                   </label>
                 </div>
                 <details>
                   <summary>
-                    条件构建器（eq / ne / in / exists / all / any / not）
+                    {t("conditionBuilder")}（eq / ne / in / exists / all / any / not）
                   </summary>
                   <label className="field">
-                    <span>受限条件 JSON</span>
+                    <span>{t("restrictedCondition")}</span>
                     <textarea
-                      aria-label={`${stage.key} 条件`}
+                      aria-label={`${label(stage.key)} ${t("restrictedCondition")}`}
                       defaultValue={
                         stage.condition
                           ? JSON.stringify(stage.condition, null, 2)
@@ -354,10 +354,10 @@ export function WorkflowEditorPage() {
                               >,
                             });
                             setMessage(
-                              "条件已写入本地草稿，保存或发布后生效。",
+                              t("conditionSaved"),
                             );
                           } catch {
-                            setMessage("条件不是有效 JSON");
+                            setMessage(`${t("restrictedCondition")} ${t("invalidJson")}`);
                           }
                         } else
                           setDraft((current) => {
@@ -391,13 +391,13 @@ export function WorkflowEditorPage() {
         </section>
         <aside className="span-4">
           <section className="card">
-            <h2>依赖边</h2>
+            <h2>{t("dependencyEdges")}</h2>
             {draft.envelope.data.edges.map((edge, i) => (
               <div className="stage" key={`${edge.from}-${edge.to}-${i}`}>
                 <label className="field">
-                  <span>前置阶段</span>
+                  <span>{t("predecessor")}</span>
                   <select
-                    aria-label={`依赖 ${i + 1} 前置阶段`}
+                    aria-label={`${t("dependencyEdges")} ${i + 1} ${t("predecessor")}`}
                     value={edge.from}
                     onChange={(event) =>
                       updateEdge(i, { from: event.target.value })
@@ -405,15 +405,15 @@ export function WorkflowEditorPage() {
                   >
                     {stages.map((stage) => (
                       <option key={stage.key} value={stage.key}>
-                        {stage.key}
+                        {label(stage.key)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="field">
-                  <span>后继阶段</span>
+                  <span>{t("successor")}</span>
                   <select
-                    aria-label={`依赖 ${i + 1} 后继阶段`}
+                    aria-label={`${t("dependencyEdges")} ${i + 1} ${t("successor")}`}
                     value={edge.to}
                     onChange={(event) =>
                       updateEdge(i, { to: event.target.value })
@@ -421,13 +421,13 @@ export function WorkflowEditorPage() {
                   >
                     {stages.map((stage) => (
                       <option key={stage.key} value={stage.key}>
-                        {stage.key}
+                        {label(stage.key)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="field">
-                  <span>依赖类型</span>
+                  <span>{t("dependencyType")}</span>
                   <select
                     value={edge.edge_type}
                     onChange={(event) =>
@@ -436,22 +436,22 @@ export function WorkflowEditorPage() {
                       })
                     }
                   >
-                    <option value="requires">requires</option>
-                    <option value="on_success">on_success</option>
+                    <option value="requires">{t("required")}</option>
+                    <option value="on_success">{t("onSuccess")}</option>
                   </select>
                 </label>
-                {edge.condition && <small>此依赖带受限条件。</small>}
+                {edge.condition && <small>{t("restrictedCondition")}</small>}
               </div>
             ))}
           </section>
           <section className="card">
-            <h2>并行 / 返工组</h2>
+            <h2>{t("iterationGroups")}</h2>
             {draft.envelope.data.iteration_groups.length ? (
               draft.envelope.data.iteration_groups.map((group, index) => (
                 <div className="stage" key={group.key}>
                   <strong>{group.key}</strong>
                   <label className="field">
-                    <span>返工入口阶段</span>
+                    <span>{t("entryStage")}</span>
                     <select
                       value={group.entry_stage_key}
                       onChange={(event) =>
@@ -462,13 +462,13 @@ export function WorkflowEditorPage() {
                     >
                       {stages.map((stage) => (
                         <option key={stage.key} value={stage.key}>
-                          {stage.key}
+                          {label(stage.key)}
                         </option>
                       ))}
                     </select>
                   </label>
                   <label className="field">
-                    <span>最大轮数（平台上限 3）</span>
+                    <span>{t("maxIterations")}</span>
                     <input
                       type="number"
                       min="1"

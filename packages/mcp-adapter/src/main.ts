@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   }));
   await ipc.connect();
   const runtime = new AdapterRuntime({
-    capabilities: createConservativeCapabilities(clientType, '0.1.4'),
+    capabilities: createConservativeCapabilities(clientType, '0.1.5'),
     sessionGuard: new SessionGuard({
       sessionId,
       recoveryStore: new RecoveryCredentialStore(
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   });
   const tools = runtime.tools();
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
-  const server = new Server({ name: 'project-orchestrator', version: '0.1.4' }, {
+  const server = new Server({ name: 'project-orchestrator', version: '0.1.5' }, {
     capabilities: { tools: {} },
     instructions: JSON.stringify({
       host_capabilities: runtime.capabilities,

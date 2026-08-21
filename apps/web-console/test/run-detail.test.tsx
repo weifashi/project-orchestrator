@@ -17,10 +17,10 @@ it("renders active stages, waits, attempts, artifacts and unknown side effects w
     </ApiContext.Provider>,
   );
   expect(
-    await screen.findByText(/Codex\/Claude 会话完成确认/),
+    await screen.findByText(/Codex 或 Claude 会话完成确认/),
   ).toBeInTheDocument();
   expect(screen.getByText(/禁止直接重试/)).toBeInTheDocument();
-  expect(screen.getAllByText("testing")).not.toHaveLength(0);
+  expect(screen.getAllByText("测试验证")).not.toHaveLength(0);
   await userEvent.click(screen.getByRole("tab", { name: "产物" }));
   expect(screen.getByRole("link", { name: "下载" })).toHaveAttribute(
     "href",

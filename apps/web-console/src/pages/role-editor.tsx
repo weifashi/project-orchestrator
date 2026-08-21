@@ -5,6 +5,7 @@ import { useApi } from "../api/context";
 import { ErrorPanel } from "../components/error-panel";
 import { VersionBanner } from "../components/version-banner";
 import { useLoad } from "./use-load";
+import { useI18n } from "../i18n";
 const capabilities = [
   "read-workspace",
   "write-workspace",
@@ -13,6 +14,7 @@ const capabilities = [
   "managed-side-effect",
 ];
 export function RoleEditorPage() {
+  const { t, label } = useI18n();
   const { id = "" } = useParams(),
     api = useApi(),
     loaded = useLoad(() => api.roles.getDraft(id), [api, id]),
@@ -33,15 +35,15 @@ export function RoleEditorPage() {
   if (loaded.error)
     return (
       <div className="page">
-        <h1 tabIndex={-1}>角色编辑器</h1>
+        <h1 tabIndex={-1}>{t("roles")}</h1>
         <ErrorPanel error={loaded.error} />
       </div>
     );
   if (!draft)
     return (
       <div className="page">
-        <h1 tabIndex={-1}>角色编辑器</h1>
-        <p role="status">读取草稿…</p>
+        <h1 tabIndex={-1}>{t("roles")}</h1>
+        <p role="status">{t("loading")}</p>
       </div>
     );
   const data = draft.envelope.data,
@@ -71,7 +73,7 @@ export function RoleEditorPage() {
       if (kind === "save") {
         const saved = await api.roles.saveDraft(id, draft);
         setDraft(saved);
-        setMessage(`草稿已保存 · revision ${saved.revision}`);
+        setMessage(`${t("savedMessage")} · ${t("revision")} ${saved.revision}`);
       } else {
         const result = (await api.roles.publish(
           id,
@@ -88,14 +90,14 @@ export function RoleEditorPage() {
           ),
         );
         setMessage(
-          `已发布不可变新版本。有效能力：${result.effectiveCapabilities?.join("、") || "以服务端结果为准"}`,
+          `${t("publishedMessage")} ${t("requestCapabilities")}：${result.effectiveCapabilities?.map(label).join("、") || t("unknown")}`,
         );
       }
     } catch (error) {
       setMessage(
         error instanceof Error
-          ? `${kind === "save" ? "保存" : "发布"}失败：${error.message}`
-          : "操作失败",
+          ? `${kind === "save" ? t("saveDraft") : t("publish")}：${error.message}`
+          : t("operationFailed"),
       );
     } finally {
       setBusy(false);
@@ -106,11 +108,11 @@ export function RoleEditorPage() {
       <div className="page-head">
         <div>
           <span className="eyebrow">
-            Role draft · revision {draft.revision}
+            {t("roleDraft")} · {t("revision")} {draft.revision}
           </span>
-          <h1 tabIndex={-1}>{data.display_name}</h1>
+          <h1 tabIndex={-1}>{label(data.slug)}</h1>
           <p className="muted">
-            请求能力 ∩ 平台允许能力 − 禁止能力 = 发布后的有效能力。
+            {t("publishIntersection")}
           </p>
         </div>
       </div>
@@ -131,18 +133,18 @@ export function RoleEditorPage() {
                       ? { ...current, envelope: published.envelope }
                       : published,
                   );
-                  setMessage("已恢复当前内置发布版本；保存后才写入草稿。");
+                  setMessage(t("restoreMessage"));
                 })
                 .catch((error: unknown) =>
                   setMessage(
                     error instanceof Error
-                      ? `恢复失败：${error.message}`
-                      : "恢复失败",
+                      ? `${t("restoreBuiltin")}：${error.message}`
+                      : t("operationFailed"),
                   ),
                 );
             }}
           >
-            恢复内置
+            {t("restoreBuiltin")}
           </button>
           <button
             className="button"
@@ -153,7 +155,7 @@ export function RoleEditorPage() {
             }
             onClick={() => void act("save")}
           >
-            保存草稿
+            {t("saveDraft")}
           </button>
           <button
             className="button primary"
@@ -165,22 +167,22 @@ export function RoleEditorPage() {
             }
             onClick={() => void act("publish")}
           >
-            发布新版本
+            {t("publish")}
           </button>
         </div>
       </div>
       <div className="grid">
         <section className="card span-7">
-          <h2>职责与契约</h2>
+          <h2>{t("roleContract")}</h2>
           <label className="field">
-            <span>显示名称</span>
+            <span>{t("displayName")}</span>
             <input
               value={data.display_name}
               onChange={(e) => update({ display_name: e.target.value })}
             />
           </label>
           <label className="field">
-            <span>职责（每行一项）</span>
+            <span>{t("responsibilities")}</span>
             <textarea
               value={data.responsibilities.join("\n")}
               onChange={(e) =>
@@ -191,7 +193,7 @@ export function RoleEditorPage() {
             />
           </label>
           <label className="field">
-            <span>角色说明 Markdown</span>
+            <span>{t("roleMarkdown")}</span>
             <textarea
               value={data.body_markdown}
               onChange={(e) => update({ body_markdown: e.target.value })}
@@ -199,7 +201,7 @@ export function RoleEditorPage() {
           </label>
           <div className="form-grid">
             <label className="field">
-              <span>输入 Schema</span>
+              <span>{t("inputSchema")}</span>
               <textarea
                 key={JSON.stringify(data.input_schema)}
                 defaultValue={JSON.stringify(data.input_schema, null, 2)}
@@ -211,13 +213,13 @@ export function RoleEditorPage() {
                       ) as typeof data.input_schema,
                     });
                   } catch {
-                    setMessage("输入 Schema 不是有效 JSON");
+                    setMessage(`${t("inputSchema")} ${t("invalidJson")}`);
                   }
                 }}
               />
             </label>
             <label className="field">
-              <span>输出 Schema</span>
+              <span>{t("outputSchema")}</span>
               <textarea
                 key={JSON.stringify(data.output_schema)}
                 defaultValue={JSON.stringify(data.output_schema, null, 2)}
@@ -229,14 +231,14 @@ export function RoleEditorPage() {
                       ) as typeof data.output_schema,
                     });
                   } catch {
-                    setMessage("输出 Schema 不是有效 JSON");
+                    setMessage(`${t("outputSchema")} ${t("invalidJson")}`);
                   }
                 }}
               />
             </label>
           </div>
           <label className="field">
-            <span>完成契约 / 必需产物</span>
+            <span>{t("completionContract")}</span>
             <textarea
               key={JSON.stringify(data.completion_contract)}
               defaultValue={JSON.stringify(data.completion_contract, null, 2)}
@@ -248,7 +250,7 @@ export function RoleEditorPage() {
                     ) as typeof data.completion_contract,
                   });
                 } catch {
-                  setMessage("完成契约不是有效 JSON");
+                  setMessage(`${t("completionContract")} ${t("invalidJson")}`);
                 }
               }}
             />
@@ -256,9 +258,9 @@ export function RoleEditorPage() {
         </section>
         <aside className="span-5">
           <section className="card">
-            <h2>未来版本状态</h2>
+            <h2>{t("futureStatus")}</h2>
             <label className="field">
-              <span>角色状态</span>
+              <span>{t("roleStatus")}</span>
               <select
                 value={status ?? ""}
                 disabled={
@@ -275,20 +277,20 @@ export function RoleEditorPage() {
                 }
               >
                 <option value="" disabled>
-                  读取当前状态…
+                  {t("loading")}
                 </option>
-                <option value="active">active · 可用于未来 Run</option>
-                <option value="disabled">disabled · 停止新引用</option>
-                <option value="archived">archived · 永久归档</option>
+                <option value="active">{t("active")} · {t("availableFuture")}</option>
+                <option value="disabled">{t("disabled")} · {t("stopNewReferences")}</option>
+                <option value="archived">{t("archived")} · {t("permanentlyArchived")}</option>
               </select>
             </label>
-            <p className="muted">历史 Run 和不可变版本仍保留。</p>
+            <p className="muted">{t("historyPreserved")}</p>
           </section>
           <section className="card">
-            <h2>申请工具能力</h2>
+            <h2>{t("requestCapabilities")}</h2>
             <div className="button-row">
               <button className="button" onClick={() => setCaps(capabilities)}>
-                全选
+                {t("selectAll")}
               </button>
               <button
                 className="button"
@@ -296,7 +298,7 @@ export function RoleEditorPage() {
                   setCaps(capabilities.filter((cap) => !requested.has(cap)))
                 }
               >
-                反选
+                {t("invertSelection")}
               </button>
             </div>
             <div className="cap-grid mt-14">
@@ -307,26 +309,26 @@ export function RoleEditorPage() {
                     checked={requested.has(cap)}
                     onChange={() => toggle(cap)}
                   />
-                  {cap}
+                  {label(cap)}
                 </label>
               ))}
             </div>
           </section>
           <section className="card">
-            <h2>平台禁止项</h2>
+            <h2>{t("platformDenied")}</h2>
             <div className="notice danger">
-              禁止能力优先，Web 无法授权平台禁用能力，也不能选择旧安全基线。
+              {t("cannotGrant")}
             </div>
             <ul>
               {data.forbidden_capabilities.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{label(item)}</li>
               ))}
             </ul>
           </section>
           <section className="card">
-            <h2>发布时的交集</h2>
-            <p className="json">requested ∩ platform allowlist − forbidden</p>
-            <p className="muted">最终集合由服务端计算并随不可变版本保存。</p>
+            <h2>{t("publishIntersection")}</h2>
+            <p className="json">{t("publishIntersection")}</p>
+            <p className="muted">{t("userContentNotice")}</p>
           </section>
         </aside>
       </div>

@@ -17,9 +17,9 @@ it("shows requested capability selection and the server-owned effective intersec
     </ApiContext.Provider>,
   );
   expect(
-    await screen.findByText(/requested ∩ platform allowlist/),
-  ).toBeInTheDocument();
+    await screen.findAllByText(/发布时的有效能力/),
+  ).not.toHaveLength(0);
   await userEvent.click(screen.getByRole("button", { name: "全选" }));
   expect(screen.getAllByRole("checkbox")).toHaveLength(5);
-  expect(screen.getByText(/Web 无法授权平台禁用能力/)).toBeInTheDocument();
+  expect(screen.getByText(/网页不能授权平台禁用能力/)).toBeInTheDocument();
 });

@@ -15,10 +15,10 @@ it("renders a polished local-console shell with semantic text navigation", () =>
     </MemoryRouter>,
   );
 
-  expect(screen.getByText("Local control plane")).toBeInTheDocument();
-  expect(screen.getByText("Template orchestration · read-only Runs")).toBeInTheDocument();
+  expect(screen.getByText("本机控制台")).toBeInTheDocument();
+  expect(screen.getByText("模板编排 · 任务仅查看")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "跳到主内容" })).toHaveAttribute("href", "#main-content");
-  expect(screen.getByLabelText("主导航")).toHaveClass("sidebar");
-  expect(screen.getByRole("link", { name: /总览 Dashboard/ })).toBeInTheDocument();
-  expect(screen.getByText("Web 不执行任务，只观察与编排模板")).toBeInTheDocument();
+  expect(screen.getByLabelText("总览")).toHaveClass("sidebar");
+  expect(screen.getByRole("link", { name: "总览" })).toBeInTheDocument();
+  expect(screen.getByText("网页不执行任务，只观察与编排模板")).toBeInTheDocument();
 });

@@ -1,8 +1,2 @@
-export function VersionBanner() {
-  return (
-    <aside className="version-banner">
-      <strong>仅影响未来 Run</strong>
-      <span>正在运行和历史任务继续使用创建时冻结的版本快照。</span>
-    </aside>
-  );
-}
+import { useI18n } from "../i18n";
+export function VersionBanner() { const { t } = useI18n(); return <aside className="version-banner"><strong>{t("onlyFutureRun")}</strong><span>{t("onlyFutureRunBody")}</span></aside>; }

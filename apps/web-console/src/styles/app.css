@@ -708,3 +708,7 @@ main {
   overflow: auto;
   white-space: pre;
 }
+.locale-switch { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-strong); font-weight: 760; white-space: nowrap; }
+.locale-switch select { min-height: 36px; border: 1px solid rgba(148,163,184,.42); border-radius: 10px; background: rgba(15,23,42,.9); color: #f8fafc; padding: 0 30px 0 10px; font: inherit; cursor: pointer; }
+.locale-switch select:focus-visible { outline: 3px solid rgba(52,211,153,.52); outline-offset: 2px; }
+@media (max-width: 850px) { .topbar { height: auto; min-height: 72px; align-items: flex-start; padding-block: 12px; } .topbar-meta { flex-wrap: wrap; justify-content: flex-start; } .locale-switch { min-height: 38px; } }

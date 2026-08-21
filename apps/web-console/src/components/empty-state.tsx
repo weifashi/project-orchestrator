@@ -1,14 +1,5 @@
-export function EmptyState({
-  title = "暂无数据",
-  detail = "这里还没有可显示的记录。",
-}: {
-  title?: string;
-  detail?: string;
-}) {
-  return (
-    <div className="empty" role="status">
-      <strong>{title}</strong>
-      <span>{detail}</span>
-    </div>
-  );
+import { useI18n } from "../i18n";
+export function EmptyState({ title, detail }: { title?: string; detail?: string }) {
+  const { t } = useI18n();
+  return <div className="empty" role="status"><strong>{title ?? t("noData")}</strong><span>{detail ?? t("noDataDetail")}</span></div>;
 }

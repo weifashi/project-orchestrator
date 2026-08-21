@@ -36,6 +36,6 @@ describe("workflow editor", () => {
     expect(publish).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "发布新版本" }));
     expect(publish).toHaveBeenCalledOnce();
-    expect(await screen.findByText(/现有 Run 不受影响/)).toBeInTheDocument();
+    expect(await screen.findByText(/现有任务不受影响/)).toBeInTheDocument();
   });
 });

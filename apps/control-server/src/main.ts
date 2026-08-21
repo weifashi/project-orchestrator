@@ -90,7 +90,7 @@ if (command === "--rotate-web-credentials") {
   process.stdout.write('Local database, built-in workflows, and client installations initialized.\n');
 } else if (command === 'version' || command === '--version') {
   const versionFile = process.env['PROJECT_ORCHESTRATOR_VERSION_FILE'];
-  process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.4'}\n`);
+  process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.5'}\n`);
 } else if (command === 'url') {
   process.stdout.write(`${loadConfig().allowedOrigin}\n`);
 } else if (command === 'doctor') {

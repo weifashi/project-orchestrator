@@ -7,16 +7,8 @@ import { Badge } from "../components/badge";
 import { EmptyState } from "../components/empty-state";
 import { ErrorPanel } from "../components/error-panel";
 import { useLoad } from "./use-load";
-const tabs = [
-  "概览",
-  "时间线",
-  "阶段 / Attempts",
-  "产物",
-  "文件变化",
-  "测试",
-  "记忆",
-  "诊断",
-] as const;
+import { useI18n } from "../i18n";
+const tabs = ["overview", "timeline", "stages", "artifacts", "files", "tests", "memory", "diagnostics"] as const;
 const value = (row: Record<string, unknown>, key: string) =>
   String(row[key] ?? "—");
 const payload = (event: RunEvent) =>
@@ -30,10 +22,11 @@ const payload = (event: RunEvent) =>
       })()
     : event.payload_envelope;
 export function RunDetailPage() {
+  const { t, locale } = useI18n();
   const { id = "" } = useParams(),
     api = useApi(),
     { data, error } = useLoad(() => api.runs.get(id), [api, id]);
-  const [tab, setTab] = useState<(typeof tabs)[number]>("概览"),
+  const [tab, setTab] = useState<(typeof tabs)[number]>("overview"),
     [live, setLive] = useState<RunEvent[]>([]);
   useEffect(
     () =>
@@ -52,15 +45,15 @@ export function RunDetailPage() {
   if (error)
     return (
       <div className="page">
-        <h1 tabIndex={-1}>Run 详情</h1>
+        <h1 tabIndex={-1}>{t("runDetail")}</h1>
         <ErrorPanel error={error} />
       </div>
     );
   if (!data)
     return (
       <div className="page">
-        <h1 tabIndex={-1}>Run 详情</h1>
-        <p role="status">读取任务快照…</p>
+        <h1 tabIndex={-1}>{t("runDetail")}</h1>
+        <p role="status">{t("runSnapshot")}</p>
       </div>
     );
   const events = [...data.events, ...live]
@@ -85,34 +78,34 @@ export function RunDetailPage() {
           </span>
           <h1 tabIndex={-1}>{data.objective}</h1>
           <p className="muted">
-            Run {data.id} · 模板快照 {data.workflow_version_id}
+            {t("runId")} {data.id} · {t("workflowSnapshot")} {data.workflow_version_id}
           </p>
         </div>
         <Badge>{data.status}</Badge>
       </div>
       {waiting && (
         <div className="notice">
-          请回到发起本次任务的 Codex/Claude 会话完成确认。
+          {t("confirmInSession")}
         </div>
       )}
       {data.status === "failed" && (
         <div className="notice danger">
-          <strong>{data.failure_code ?? "阶段失败"}</strong> ·{" "}
-          {data.failure_summary ?? "查看失败 Attempt 与证据。"}{" "}
-          请回原客户端会话重试。
+          <strong>{data.failure_code ?? t("stageFailed")}</strong> ·{" "}
+          {data.failure_summary ?? t("checkEvidence")}{" "}
+          {t("retryInSession")}
         </div>
       )}
       {data.status === "interrupted" && (
         <div className="notice danger">
-          原会话已中断。Web 保留全部状态；请回同一客户端安装实例恢复。
+          {t("sessionInterrupted")}
         </div>
       )}
       {unknown && (
         <div className="notice danger">
-          外部副作用结果未知：先在原会话对账，禁止直接重试。
+          {t("sideEffectUnknown")}
         </div>
       )}
-      <div className="tabs" role="tablist" aria-label="Run 详情分区">
+      <div className="tabs" role="tablist" aria-label={t("runDetail")}>
         {tabs.map((name) => (
           <button
             className="tab"
@@ -121,25 +114,25 @@ export function RunDetailPage() {
             key={name}
             onClick={() => setTab(name)}
           >
-            {name}
+            {t(name)}
           </button>
         ))}
       </div>
       <section role="tabpanel">
-        {tab === "概览" && (
+        {tab === "overview" && (
           <div className="grid">
             <article className="card span-7">
-              <h2>当前阶段集合</h2>
+              <h2>{t("activeStages")}</h2>
               <div className="stage-pills">
                 {data.active_stages.length ? (
                   data.active_stages.map((stage) => (
                     <Badge key={stage}>{stage}</Badge>
                   ))
                 ) : (
-                  <span className="muted">没有 active StageRun</span>
+                  <span className="muted">{t("noActiveStage")}</span>
                 )}
               </div>
-              <h2 className="mt-24">阶段状态</h2>
+              <h2 className="mt-24">{t("stageStatus")}</h2>
               {data.stages.length ? (
                 <div className="stage-list">
                   {data.stages.map((stage) => (
@@ -147,7 +140,7 @@ export function RunDetailPage() {
                       <span>
                         <strong>{value(stage, "stage_key")}</strong>
                         <small className="block">
-                          iteration {value(stage, "iteration_number")} · role{" "}
+                          {t("iteration")} {value(stage, "iteration_number")} · {t("roles")}{" "}
                           {value(stage, "role_version_id")}
                         </small>
                       </span>
@@ -160,7 +153,7 @@ export function RunDetailPage() {
               )}
             </article>
             <aside className="card span-5">
-              <h2>冻结快照</h2>
+              <h2>{t("frozenSnapshot")}</h2>
               <dl className="kv">
                 {Object.entries(data.snapshot ?? {}).map(([key, v]) => (
                   <Fragment key={key}>
@@ -172,9 +165,9 @@ export function RunDetailPage() {
             </aside>
           </div>
         )}
-        {tab === "时间线" && (
+        {tab === "timeline" && (
           <article className="card">
-            <h2>事件时间线 · SSE 自动补齐</h2>
+            <h2>{t("eventTimeline")}</h2>
             {events.length ? (
               <ol className="timeline">
                 {events.map((event) => (
@@ -182,7 +175,7 @@ export function RunDetailPage() {
                     <strong>
                       #{event.sequence_number} · {event.event_type}
                     </strong>
-                    <time>{new Date(event.created_at).toLocaleString()}</time>
+                    <time>{new Date(event.created_at).toLocaleString(locale)}</time>
                     <pre className="json">
                       {JSON.stringify(payload(event), null, 2)}
                     </pre>
@@ -194,16 +187,16 @@ export function RunDetailPage() {
             )}
           </article>
         )}
-        {tab === "阶段 / Attempts" && (
+        {tab === "stages" && (
           <div className="grid">
             <article className="card span-7">
-              <h2>尝试历史</h2>
+              <h2>{t("attemptHistory")}</h2>
               {data.attempts.length ? (
                 data.attempts.map((attempt) => (
                   <div className="stage" key={value(attempt, "id")}>
                     <div className="stage-head">
                       <strong>
-                        Attempt #{value(attempt, "attempt_number")}
+                        {t("attempt")} #{value(attempt, "attempt_number")}
                       </strong>
                       <Badge>{value(attempt, "status")}</Badge>
                     </div>
@@ -224,13 +217,12 @@ export function RunDetailPage() {
               )}
             </article>
             <aside className="card span-5">
-              <h2>迭代历史</h2>
+              <h2>{t("iterations")}</h2>
               {data.iterations.length ? (
                 data.iterations.map((iteration) => (
                   <div className="system-row" key={value(iteration, "id")}>
                     <span>
-                      {value(iteration, "group_key")} · 第{" "}
-                      {value(iteration, "iteration_number")} 轮
+                      {value(iteration, "group_key")} · {t("iteration")} {value(iteration, "iteration_number")}
                     </span>
                     <Badge>{value(iteration, "status")}</Badge>
                   </div>
@@ -241,22 +233,22 @@ export function RunDetailPage() {
             </aside>
           </div>
         )}
-        {tab === "产物" && (
+        {tab === "artifacts" && (
           <article className="card">
-            <h2>安全下载</h2>
+            <h2>{t("safeDownload")}</h2>
             <p className="muted">
-              主动内容只作为附件下载，不在凭证页面内执行。
+              {t("safeDownloadDescription")}
             </p>
             {data.artifacts.length ? (
               <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>类型</th>
-                      <th>摘要</th>
-                      <th>来源文件</th>
-                      <th>记录时间</th>
-                      <th>附件</th>
+                      <th>{t("type")}</th>
+                      <th>{t("summary")}</th>
+                      <th>{t("sourceFile")}</th>
+                      <th>{t("recordedAt")}</th>
+                      <th>{t("attachment")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -265,7 +257,7 @@ export function RunDetailPage() {
                         <td>{item.artifact_type}</td>
                         <td>{item.summary}</td>
                         <td>{item.source_path ?? "—"}</td>
-                        <td>{new Date(item.created_at).toLocaleString()}</td>
+                        <td>{new Date(item.created_at).toLocaleString(locale)}</td>
                         <td>
                           <a
                             className="button"
@@ -285,15 +277,15 @@ export function RunDetailPage() {
             )}
           </article>
         )}
-        {tab === "文件变化" && (
+        {tab === "files" && (
           <article className="card">
-            <h2>文件清单与工作区检查点</h2>
+            <h2>{t("changedFiles")}</h2>
             {data.attempts.filter((a) => a.changed_files_object_id).length ? (
               data.attempts
                 .filter((a) => a.changed_files_object_id)
                 .map((a) => (
                   <div className="stage" key={value(a, "id")}>
-                    <strong>Attempt #{value(a, "attempt_number")}</strong>
+                    <strong>{t("attempt")} #{value(a, "attempt_number")}</strong>
                     <pre className="json">
                       {a.changed_files
                         ? JSON.stringify(a.changed_files, null, 2)
@@ -302,13 +294,13 @@ export function RunDetailPage() {
                   </div>
                 ))
             ) : (
-              <EmptyState detail="未记录 changed files manifest。" />
+              <EmptyState detail={t("noDataDetail")} />
             )}
           </article>
         )}
-        {tab === "测试" && (
+        {tab === "tests" && (
           <article className="card">
-            <h2>测试证据</h2>
+            <h2>{t("testEvidence")}</h2>
             {data.artifacts.filter((a) => a.artifact_type === "test_evidence")
               .length ? (
               data.artifacts
@@ -329,13 +321,13 @@ export function RunDetailPage() {
                   </div>
                 ))
             ) : (
-              <EmptyState detail="还没有冻结的测试证据。" />
+              <EmptyState detail={t("noDataDetail")} />
             )}
           </article>
         )}
-        {tab === "记忆" && (
+        {tab === "memory" && (
           <article className="card">
-            <h2>本 Run 产生的记忆</h2>
+            <h2>{t("memoryRecords")}</h2>
             {data.memories.length ? (
               data.memories.map((m) => (
                 <div className="stage" key={m.id}>
@@ -351,10 +343,10 @@ export function RunDetailPage() {
             )}
           </article>
         )}
-        {tab === "诊断" && (
+        {tab === "diagnostics" && (
           <div className="grid">
             <article className="card span-6">
-              <h2>确认记录</h2>
+              <h2>{t("waitingConfirmation")}</h2>
               {data.confirmations.length ? (
                 data.confirmations.map((c) => (
                   <pre className="json" key={value(c, "id")}>
@@ -366,7 +358,7 @@ export function RunDetailPage() {
               )}
             </article>
             <article className="card span-6">
-              <h2>副作用记录</h2>
+              <h2>{t("diagnosticEvidence")}</h2>
               {data.side_effects.length ? (
                 data.side_effects.map((op) => (
                   <pre className="json" key={value(op, "id")}>
