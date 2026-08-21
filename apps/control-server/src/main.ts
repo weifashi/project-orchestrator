@@ -51,6 +51,9 @@ async function startRunFromCli(): Promise<void> {
     credential: secret,
     rootSessionId: randomUUID(),
     canonicalProjectPath: workspace.canonicalProjectPath,
+    // The first Run persists snapshots and evidence to the local volume. A short
+    // adapter timeout may abandon a completed write before its response arrives.
+    timeoutMs: 30_000,
   }));
   try {
     await ipc.connect();
@@ -87,7 +90,7 @@ if (command === "--rotate-web-credentials") {
   process.stdout.write('Local database, built-in workflows, and client installations initialized.\n');
 } else if (command === 'version' || command === '--version') {
   const versionFile = process.env['PROJECT_ORCHESTRATOR_VERSION_FILE'];
-  process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.3'}\n`);
+  process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.4'}\n`);
 } else if (command === 'url') {
   process.stdout.write(`${loadConfig().allowedOrigin}\n`);
 } else if (command === 'doctor') {
