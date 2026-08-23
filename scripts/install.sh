@@ -182,7 +182,9 @@ service_mode=not-started
 if ((start)); then
   if systemctl --user show-environment >/dev/null 2>&1; then
     systemctl --user daemon-reload
-    systemctl --user enable --now project-orchestrator-operations.service project-orchestratord.service
+    systemctl --user enable project-orchestrator-operations.service project-orchestratord.service
+    # enable --now does not restart an already-running service after an upgrade.
+    systemctl --user restart project-orchestrator-operations.service project-orchestratord.service
     service_mode=systemd-user
   elif command -v sudo >/dev/null && sudo -n true >/dev/null 2>&1; then
     system_user=$(id -un); system_group=$(id -gn)
@@ -198,7 +200,9 @@ if ((start)); then
     sudo install -m 0644 "$tmp_units/$system_prefix-operations.service" "/etc/systemd/system/$system_prefix-operations.service"
     sudo install -m 0644 "$tmp_units/$system_prefix.service" "/etc/systemd/system/$system_prefix.service"
     sudo systemctl daemon-reload
-    sudo systemctl enable --now "$system_prefix-operations.service" "$system_prefix.service"
+    sudo systemctl enable "$system_prefix-operations.service" "$system_prefix.service"
+    # enable --now does not restart an already-running service after an upgrade.
+    sudo systemctl restart "$system_prefix-operations.service" "$system_prefix.service"
     service_mode=systemd-system
   else
     die 'no usable systemd user bus and passwordless sudo is unavailable; rerun with --no-start'
