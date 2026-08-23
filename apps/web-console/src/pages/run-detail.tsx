@@ -8,6 +8,7 @@ import { EmptyState } from "../components/empty-state";
 import { ErrorPanel } from "../components/error-panel";
 import { useLoad } from "./use-load";
 import { useI18n } from "../i18n";
+import { WorkflowCanvas } from "../components/workflow-canvas";
 const tabs = ["overview", "timeline", "stages", "artifacts", "files", "tests", "memory", "diagnostics"] as const;
 const value = (row: Record<string, unknown>, key: string) =>
   String(row[key] ?? "—");
@@ -28,6 +29,10 @@ export function RunDetailPage() {
     { data, error } = useLoad(() => api.runs.get(id), [api, id]);
   const [tab, setTab] = useState<(typeof tabs)[number]>("overview"),
     [live, setLive] = useState<RunEvent[]>([]);
+  const workflow = useLoad(
+    () => data ? api.workflows.getVersion(data.workflow_version_id) : Promise.resolve(undefined),
+    [api, data?.workflow_version_id],
+  );
   useEffect(
     () =>
       subscribeToRunEvents({
@@ -121,6 +126,17 @@ export function RunDetailPage() {
       <section role="tabpanel">
         {tab === "overview" && (
           <div className="grid">
+            <article className="span-12">
+              <h2>{t("runCanvas")}</h2>
+              <p className="muted">{t("runCanvasDescription")}</p>
+              {workflow.data ? <WorkflowCanvas
+                readonly
+                envelope={workflow.data.envelope}
+                roles={[]}
+                label={t}
+                stageStates={Object.fromEntries(data.stages.map((stage) => [value(stage, "stage_key"), value(stage, "status")]))}
+              /> : <p className="muted">{workflow.error ? t("workflowSnapshotUnavailable") : t("loading")}</p>}
+            </article>
             <article className="card span-7">
               <h2>{t("activeStages")}</h2>
               <div className="stage-pills">

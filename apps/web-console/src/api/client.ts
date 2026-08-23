@@ -97,6 +97,10 @@ export function createApiClient(options: ClientOptions = {}) {
             ? `/api/read/workflow-versions/${encodeURIComponent(source)}`
             : `/api/read/workflow-drafts/${encodeURIComponent(id)}${source ? "?source=published" : ""}`,
         ),
+      getVersion: (versionId: string) =>
+        request<WorkflowDraft>(
+          `/api/read/workflow-versions/${encodeURIComponent(versionId)}`,
+        ),
       saveDraft: async (
         id: string,
         d: Pick<WorkflowDraft, "revision" | "envelope">,
@@ -140,6 +144,10 @@ export function createApiClient(options: ClientOptions = {}) {
           typeof source === "string"
             ? `/api/read/role-versions/${encodeURIComponent(source)}`
             : `/api/read/role-drafts/${encodeURIComponent(id)}${source ? "?source=published" : ""}`,
+        ),
+      getVersion: (versionId: string) =>
+        request<WorkflowDraft>(
+          `/api/read/workflow-versions/${encodeURIComponent(versionId)}`,
         ),
       saveDraft: async (
         id: string,

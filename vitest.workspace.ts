@@ -26,6 +26,7 @@ export default defineWorkspace([
       name: 'web-unit',
       include: ['apps/web-console/test/**/*.test.ts?(x)'],
       environment: 'jsdom',
+      setupFiles: ['apps/web-console/test/setup.ts'],
       maxWorkers: 2,
     },
   },

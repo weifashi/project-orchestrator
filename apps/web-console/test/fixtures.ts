@@ -149,6 +149,7 @@ export function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
     workflows: {
       list: async () => [],
       getDraft: async () => workflowDraft,
+      getVersion: async () => workflowDraft,
       saveDraft: async (_id, d) => ({
         ...workflowDraft,
         ...d,

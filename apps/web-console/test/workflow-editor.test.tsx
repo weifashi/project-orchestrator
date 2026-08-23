@@ -14,6 +14,7 @@ describe("workflow editor", () => {
         workflows: {
           list: async () => [],
           getDraft: async () => workflowDraft,
+          getVersion: async () => workflowDraft,
           saveDraft,
           publish,
         },
@@ -27,10 +28,8 @@ describe("workflow editor", () => {
         </MemoryRouter>
       </ApiContext.Provider>,
     );
-    expect(
-      await screen.findByLabelText("强制安全门，无法关闭"),
-    ).toBeInTheDocument();
-    expect(screen.getAllByLabelText("可选阶段")[1]).toBeDisabled();
+    expect(await screen.findByText("角色库")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /开始|暂停|重试|部署/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     expect(saveDraft).toHaveBeenCalledOnce();
     expect(publish).not.toHaveBeenCalled();

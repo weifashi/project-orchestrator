@@ -6,12 +6,14 @@ describe("boundary-safe Web API client", () => {
     const api = createApiClient({ fetch: vi.fn() });
     expect(Object.keys(api.workflows).sort()).toEqual([
       "getDraft",
+      "getVersion",
       "list",
       "publish",
       "saveDraft",
     ]);
     expect(Object.keys(api.roles).sort()).toEqual([
       "getDraft",
+      "getVersion",
       "list",
       "publish",
       "saveDraft",

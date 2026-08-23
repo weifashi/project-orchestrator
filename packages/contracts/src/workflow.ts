@@ -72,12 +72,27 @@ export const WorkflowIterationGroupSchema = Type.Object({
   max_iterations: Type.Integer({ minimum: 1 }),
 }, { additionalProperties: false });
 
+export const WorkflowCanvasNodeSchema = Type.Object({
+  stage_key: Type.String({ minLength: 1 }),
+  x: Type.Number(),
+  y: Type.Number(),
+}, { additionalProperties: false });
+
+export const WorkflowCanvasSchema = Type.Object({
+  nodes: Type.Array(WorkflowCanvasNodeSchema, { 'x-uniqueBy': 'stage_key' }),
+  viewport_x: Type.Optional(Type.Number()),
+  viewport_y: Type.Optional(Type.Number()),
+  viewport_zoom: Type.Optional(Type.Number({ minimum: 0.1, maximum: 4 })),
+}, { additionalProperties: false });
+
 export const WorkflowVersionDataSchema = Type.Object({
   slug: Type.String({ minLength: 1 }),
   version: Type.Integer({ minimum: 1 }),
   stages: Type.Array(WorkflowStageSchema, { minItems: 1, uniqueItems: true, 'x-uniqueBy': 'key' }),
   edges: Type.Array(WorkflowEdgeSchema),
   iteration_groups: Type.Array(WorkflowIterationGroupSchema),
+  // Visual-only positions. The runtime continues to use stages and edges.
+  canvas: Type.Optional(WorkflowCanvasSchema),
 }, { additionalProperties: false });
 
 const WorkflowVersionEnvelopeBaseSchema = Envelope(
@@ -94,4 +109,6 @@ export const WorkflowVersionEnvelopeSchema = Type.Unsafe<Static<typeof WorkflowV
 export type WorkflowStage = Static<typeof WorkflowStageSchema>;
 export type WorkflowEdge = Static<typeof WorkflowEdgeSchema>;
 export type WorkflowIterationGroup = Static<typeof WorkflowIterationGroupSchema>;
+export type WorkflowCanvasNode = Static<typeof WorkflowCanvasNodeSchema>;
+export type WorkflowCanvas = Static<typeof WorkflowCanvasSchema>;
 export type WorkflowVersionEnvelope = Static<typeof WorkflowVersionEnvelopeSchema>;

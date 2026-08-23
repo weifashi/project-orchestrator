@@ -40,6 +40,19 @@ describe('contract envelopes', () => {
     expect(validator.check(WorkflowVersionEnvelopeSchema, input)).toEqual(input);
   });
 
+  it('accepts optional visual canvas positions without changing workflow semantics', () => {
+    const input = {
+      schema_id: 'project-orchestrator/workflow-version', schema_version: 1,
+      data: {
+        slug: 'visual', version: 1, edges: [], iteration_groups: [],
+        stages: [{ key: 'research', role_version_id: 'role-v1', optional: false, mandatory_gate: false, failure_policy: 'fail', max_attempts: 1, requires_confirmation: false }],
+        canvas: { nodes: [{ stage_key: 'research', x: 42, y: 84 }], viewport_zoom: 1 },
+      },
+    };
+    expect(validator.check(WorkflowVersionEnvelopeSchema, input)).toEqual(input);
+    expect(() => validator.check(WorkflowVersionEnvelopeSchema, { ...input, data: { ...input.data, canvas: { nodes: [{ stage_key: 'research', x: 1, y: 1 }, { stage_key: 'research', x: 2, y: 2 }] } } })).toThrow(/x-uniqueBy/);
+  });
+
   it('rejects an unversioned stage output', () => {
     expect(() => validator.check(StageOutputEnvelopeSchema, { status: 'succeeded' }))
       .toThrow(/schema_id/);
