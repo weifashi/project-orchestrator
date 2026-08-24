@@ -9,5 +9,5 @@ test("public bootstrap uses account login without exposing a Web token", async (
   await page.getByLabel("账号名").fill("owner");
   await page.getByLabel("密码").fill("twelve-char-password");
   await Promise.all([page.waitForURL("**/"), page.getByRole("button", { name: "登录" }).click()]);
-  await expect(page.getByRole("heading", { name: /总览|Dashboard/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /工作台总览|Workspace overview/ })).toBeVisible();
 });
