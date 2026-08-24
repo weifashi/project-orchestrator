@@ -39,3 +39,21 @@ test("dragging a workflow node follows the pointer and retains its released posi
   await page.mouse.up();
   await expect.poll(async () => (await node.boundingBox())?.x ?? 0).toBeGreaterThan(before.x + 35);
 });
+
+test("node quick-add control is centered beside its output connector", async ({ page }) => {
+  guardNetwork(page);
+  await mockApi(page);
+  await page.goto("/workflows/workflow-1");
+
+  const offset = await page.locator(".workflow-node").first().evaluate((node) => {
+    const quickAdd = node.querySelector<HTMLElement>(".node-quick-add");
+    if (!quickAdd) throw new Error("quick-add control is missing");
+    const nodeRect = node.getBoundingClientRect();
+    const quickAddRect = quickAdd.getBoundingClientRect();
+    return Math.abs(
+      quickAddRect.top + quickAddRect.height / 2 - (nodeRect.top + nodeRect.height / 2),
+    );
+  });
+
+  expect(offset).toBeLessThanOrEqual(1);
+});
