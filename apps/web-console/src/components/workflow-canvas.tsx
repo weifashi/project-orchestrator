@@ -61,9 +61,19 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const collapsed = useMemo(() => envelope.data.canvas?.groups?.filter((group) => group.collapsed) ?? [], [envelope.data.canvas?.groups]);
   const groupFor = useCallback((key: string) => collapsed.find((group) => group.stage_keys.includes(key)), [collapsed]);
   const endpoint = useCallback((key: string) => groupFor(key)?.id ?? key, [groupFor]);
+  const stageLabel = useCallback((stage: WorkflowStage) => {
+    const direct = label(stage.key);
+    if (direct !== stage.key) return direct;
+    const role = roles.find((item) => item.current_version_id === stage.role_version_id);
+    if (role) {
+      const localizedRole = label(role.slug);
+      return localizedRole === role.slug ? role.name : localizedRole;
+    }
+    return label(stage.key.replace(/-\d+$/, ""));
+  }, [label, roles]);
   const authoredNodes = useMemo<Node[]>(() => {
     const stages = envelope.data.stages.filter((stage) => !groupFor(stage.key)).map((stage) => ({
-      id: stage.key, type: "stage", position: positions[stage.key]!, data: { stage, label: label(stage.key), selected: selected === stage.key, state: stageStates[stage.key] ?? "queued", stateLabel: t(stageStates[stage.key] ?? "queued"), meta: stage.mandatory_gate ? t("mandatoryGate") : stage.optional ? t("optionalStage") : t("stage"), quickAddLabel: t("addNode"), ...(!readonly ? { onQuickAdd: (key: string) => { setSelected(key); setPaletteOpen(true); } } : {}) },
+      id: stage.key, type: "stage", position: positions[stage.key]!, data: { stage, label: stageLabel(stage), selected: selected === stage.key, state: stageStates[stage.key] ?? "queued", stateLabel: t(stageStates[stage.key] ?? "queued"), meta: stage.mandatory_gate ? t("mandatoryGate") : stage.optional ? t("optionalStage") : t("stage"), quickAddLabel: t("addNode"), ...(!readonly ? { onQuickAdd: (key: string) => { setSelected(key); setPaletteOpen(true); } } : {}) },
     }));
     const summaries = collapsed.map((group) => {
       const memberPositions = group.stage_keys.map((key) => positions[key]).filter((value): value is CanvasPosition => value !== undefined);
@@ -71,7 +81,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
       return { id: group.id, type: "group", position: { x: memberPositions.length ? position.x / memberPositions.length : 42, y: memberPositions.length ? position.y / memberPositions.length : 48 }, draggable: false, connectable: false, data: { label: group.label, count: group.stage_keys.length, summary: `${group.stage_keys.length} · ${t("expandGroup")}`, expandLabel: `${t("expandGroup")} ${group.label}`, onExpand: () => { onChange?.(toggleCanvasGroup(envelope, group.id)); } } };
     });
     return [...stages, ...summaries];
-  }, [collapsed, envelope, groupFor, label, onChange, positions, readonly, selected, stageStates, t]);
+  }, [collapsed, envelope, groupFor, onChange, positions, readonly, selected, stageLabel, stageStates, t]);
   const [nodes, setNodes, applyNodeChanges] = useNodesState<Node>([]);
   useEffect(() => { setNodes(authoredNodes); }, [authoredNodes, setNodes]);
   const edges = useMemo<Edge[]>(() => {

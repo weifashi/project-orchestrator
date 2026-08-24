@@ -46,3 +46,17 @@ describe("workflow canvas", () => {
   });
 
 });
+
+describe("workflow canvas labels", () => {
+  it("uses the role's localized name for a duplicate stage key", async () => {
+    const duplicate: WorkflowVersionEnvelope = {
+      ...emptyWorkflow,
+      data: {
+        ...emptyWorkflow.data,
+        stages: [{ key: "operations-2", role_version_id: "role-operations", optional: false, mandatory_gate: false, failure_policy: "pause", max_attempts: 1, requires_confirmation: false }],
+      },
+    };
+    render(<WorkflowCanvas envelope={duplicate} roles={[]} label={(key) => key === "operations" ? "运维交付" : key} onChange={() => undefined} />);
+    expect(await screen.findByText("运维交付")).toBeInTheDocument();
+  });
+});
