@@ -40,7 +40,7 @@ test("dragging a workflow node follows the pointer and retains its released posi
   await expect.poll(async () => (await node.boundingBox())?.x ?? 0).toBeGreaterThan(before.x + 35);
 });
 
-test("node output plus is centered and placed to the right of its node", async ({ page }) => {
+test("node output plus is centered and flush with its node edge", async ({ page }) => {
   guardNetwork(page);
   await mockApi(page);
   await page.goto("/workflows/workflow-1");
@@ -57,7 +57,8 @@ test("node output plus is centered and placed to the right of its node", async (
   });
 
   expect(offset.vertical).toBeLessThanOrEqual(1);
-  expect(offset.rightGap).toBeGreaterThan(4);
+  expect(offset.rightGap).toBeGreaterThanOrEqual(-2);
+  expect(offset.rightGap).toBeLessThanOrEqual(2);
 });
 
 test("the output plus can be dragged to another node to create a dependency", async ({ page }) => {
