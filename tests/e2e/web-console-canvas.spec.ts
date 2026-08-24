@@ -40,20 +40,45 @@ test("dragging a workflow node follows the pointer and retains its released posi
   await expect.poll(async () => (await node.boundingBox())?.x ?? 0).toBeGreaterThan(before.x + 35);
 });
 
-test("node quick-add control is centered beside its output connector", async ({ page }) => {
+test("node output plus is centered and placed to the right of its node", async ({ page }) => {
   guardNetwork(page);
   await mockApi(page);
   await page.goto("/workflows/workflow-1");
 
   const offset = await page.locator(".workflow-node").first().evaluate((node) => {
-    const quickAdd = node.querySelector<HTMLElement>(".node-quick-add");
-    if (!quickAdd) throw new Error("quick-add control is missing");
+    const quickAdd = node.querySelector<HTMLElement>(".node-output-handle");
+    if (!quickAdd) throw new Error("output plus is missing");
     const nodeRect = node.getBoundingClientRect();
     const quickAddRect = quickAdd.getBoundingClientRect();
-    return Math.abs(
-      quickAddRect.top + quickAddRect.height / 2 - (nodeRect.top + nodeRect.height / 2),
-    );
+    return {
+      vertical: Math.abs(quickAddRect.top + quickAddRect.height / 2 - (nodeRect.top + nodeRect.height / 2)),
+      rightGap: quickAddRect.left - nodeRect.right,
+    };
   });
 
-  expect(offset).toBeLessThanOrEqual(1);
+  expect(offset.vertical).toBeLessThanOrEqual(1);
+  expect(offset.rightGap).toBeGreaterThan(4);
+});
+
+test("the output plus can be dragged to another node to create a dependency", async ({ page }) => {
+  guardNetwork(page);
+  await mockApi(page);
+  await page.goto("/workflows/workflow-1");
+
+  const source = page.locator(".react-flow__node", { hasText: "测试验证" }).locator(".node-output-handle");
+  const target = page.locator(".react-flow__node", { hasText: "开发实现" }).locator(".node-input-handle");
+  await expect(source).toBeVisible();
+  await expect(target).toBeVisible();
+  await source.dragTo(target);
+
+  await expect(page.locator(".react-flow__edge")).toHaveCount(2);
+});
+
+test("clicking the output plus still opens quick role add", async ({ page }) => {
+  guardNetwork(page);
+  await mockApi(page);
+  await page.goto("/workflows/workflow-1");
+
+  await page.locator(".react-flow__node").first().locator(".node-output-handle").click();
+  await expect(page.getByRole("dialog", { name: /Add node|添加节点/ })).toBeVisible();
 });

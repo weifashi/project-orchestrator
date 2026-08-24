@@ -814,3 +814,11 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 /* The minimap is intentionally removed: it consumed space without helping this compact editor. */
 .react-flow__minimap { display: none !important; }
 .react-flow__controls { right: 20px !important; }
+
+/* The n8n-style output plus is both the quick-add trigger and the connection origin. */
+.workflow-node { padding-right: 34px; }
+.node-input-handle.react-flow__handle { width: 14px; height: 14px; border: 2px solid #c6c6c6; border-radius: 50%; background: #202020; }
+.node-output-handle.react-flow__handle { display: grid; place-items: center; width: 28px; height: 28px; right: -22px; border: 0; border-radius: 50%; background: transparent; color: #fff; cursor: crosshair; transform: translate(50%, -50%); }
+.node-output-handle.react-flow__handle::after { content: "+"; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #454545; color: #fff; font-family: Arial, sans-serif; font-size: 22px; font-weight: 400; line-height: 1; }
+.node-output-handle.react-flow__handle:hover::after,.node-output-handle.react-flow__handle:focus-visible::after { background: #ff6d5a; color: #301411; }
+.node-output-handle.react-flow__handle:focus-visible { outline: 3px solid #ffb3a8; outline-offset: 3px; }

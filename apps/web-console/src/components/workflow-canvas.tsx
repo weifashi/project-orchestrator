@@ -24,12 +24,15 @@ type Props = {
 
 const StageNode = memo(function StageNode({ data }: { data: NodeData }) {
   const { stage, label, meta, quickAddLabel, selected, state, onQuickAdd } = data;
+  const openQuickAdd = (event: { stopPropagation: () => void }) => {
+    event.stopPropagation();
+    onQuickAdd?.(stage.key);
+  };
   return <div className={`workflow-node ${stage.mandatory_gate ? "is-gate" : ""} ${selected ? "is-selected" : ""} ${state ? `is-${state}` : ""}`}>
-    <Handle type="target" position={Position.Left} />
+    <Handle type="target" position={Position.Left} className="node-input-handle" />
     <div className="workflow-node-title"><span className="workflow-node-avatar" aria-hidden>{label.slice(0, 1).toUpperCase()}</span><span>{label}</span>{stage.mandatory_gate && <small aria-label={meta}>●</small>}</div>
     <div className="workflow-node-meta">{state ?? meta}</div>
-    {onQuickAdd && <button className="node-quick-add nodrag" type="button" title={quickAddLabel} aria-label={quickAddLabel} onClick={(event) => { event.stopPropagation(); onQuickAdd(stage.key); }}>＋</button>}
-    <Handle type="source" position={Position.Right} />
+    <Handle type="source" position={Position.Right} className="node-output-handle" title={quickAddLabel} aria-label={quickAddLabel} role={onQuickAdd ? "button" : undefined} tabIndex={onQuickAdd ? 0 : undefined} onClick={onQuickAdd ? openQuickAdd : undefined} onKeyDown={onQuickAdd ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openQuickAdd(event); } } : undefined} />
   </div>;
 });
 const GroupNode = memo(function GroupNode({ data }: { data: GroupData }) {
