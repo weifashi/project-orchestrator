@@ -231,10 +231,11 @@ export async function mockApi(page: Page) {
 }
 export async function bootstrap(page: Page) {
   await page.goto("/bootstrap");
-  await page.getByLabel("Web token").fill("e2e-web-token");
+  await page.getByLabel("账号名").fill("owner");
+  await page.getByLabel("密码").fill("twelve-char-password");
   await Promise.all([
     page.waitForURL("**/"),
-    page.getByRole("button", { name: "连接" }).click(),
+    page.getByRole("button", { name: "登录" }).click(),
   ]);
 }
 export function guardNetwork(page: Page) {

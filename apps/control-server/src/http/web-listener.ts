@@ -15,10 +15,8 @@ import { closeEventStreams, streamEvents, type EventStreamConnections } from "./
 type WebListenerInput = {
   db: Database.Database;
   content: ContentStore;
-  sessionSecret?: string;
-  csrfToken?: string;
-  allowedOrigins?: readonly string[];
-  allowedOrigin?: string;
+  sessionSecret: string;
+  allowedOrigins: readonly string[];
   allowedHosts?: readonly string[];
   handlers?: ConfigHandlers;
   ssePollIntervalMs?: number;
@@ -35,6 +33,7 @@ const clearSessionCookie = (secure: boolean) =>
 const cookieValue = (raw: string | undefined, name: string): string | undefined =>
   raw?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
 const formValue = (body: unknown, key: string): string => new URLSearchParams(String(body ?? "")).get(key) ?? "";
+const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 const authError = (error: unknown): { status: number; message: string } => {
   const code = error instanceof Error ? error.message : "";
   if (code === "REGISTRATION_CLOSED") return { status: 403, message: "管理员账号已经创建，请直接登录。" };
@@ -52,9 +51,9 @@ const bootstrapPage = (styleNonce: string, registering: boolean, error?: string)
 
 export function buildWebListener(input: WebListenerInput): WebListener {
   const app = Fastify({ logger: false }), eventStreams: EventStreamConnections = new Set();
-  const sessionSecret = input.sessionSecret ?? input.csrfToken;
-  const allowedOrigins = new Set(input.allowedOrigins ?? (input.allowedOrigin ? [input.allowedOrigin] : []));
-  if (!sessionSecret || allowedOrigins.size === 0) throw new Error("CONFIG_MISSING: web auth configuration");
+  const sessionSecret = input.sessionSecret;
+  const allowedOrigins = new Set(input.allowedOrigins);
+  if (allowedOrigins.size === 0) throw new Error("CONFIG_MISSING: web auth configuration");
   const allowedHosts = new Set(input.allowedHosts ?? ["127.0.0.1", "localhost"]);
   const secureCookies = [...allowedOrigins].some((origin) => origin.startsWith("https://"));
   const auth = createWebAuth(input.db, sessionSecret);
@@ -90,7 +89,7 @@ export function buildWebListener(input: WebListenerInput): WebListener {
   const handlers = input.handlers ?? createConfigHandlers(new ConfigService(new SqliteConfigRepository(input.db), input.content), input.db);
   registerConfigRoutes(app, handlers); registerReadRoutes(app, input.db, input.content);
   app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 16 * 1024 }, (_request, body, done) => done(null, body));
-  const page = (reply: FastifyReply, error?: { status: number; message: string }) => reply.code(error?.status ?? 200).header("Cache-Control", "no-store").type("text/html; charset=utf-8").send(bootstrapPage(randomBytes(16).toString("base64url"), !auth.hasUsers(), error?.message));
+  const page = (reply: FastifyReply, error?: { status: number; message: string }) => reply.code(error?.status ?? 200).header("Cache-Control", "no-store").type("text/html; charset=utf-8").send(bootstrapPage(randomBytes(16).toString("base64url"), !auth.hasUsers(), error ? escapeHtml(error.message) : undefined));
   app.get("/health", async (_request, reply) => reply.header("Cache-Control", "no-store").send({ ok: true }));
   app.get("/bootstrap", async (_request, reply) => page(reply));
   app.post("/bootstrap/register", async (request, reply) => {

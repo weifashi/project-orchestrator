@@ -98,7 +98,7 @@ for directory in "$data" "$data/backups" "$data/logs" "$data/objects" "$data/run
   mkdir -p "$directory"; chmod 700 "$directory"
 done
 new_secret() { node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url")+"\n")'; }
-for secret_file in web-token web-token.csrf adapter-codex-credential adapter-claude-credential; do
+for secret_file in web-session-secret adapter-codex-credential adapter-claude-credential; do
   path=$data/runtime/$secret_file
   if [[ ! -s $path ]]; then new_secret > "$path"; fi
   chmod 600 "$path"
@@ -106,12 +106,22 @@ done
 [[ $(<"$data/runtime/adapter-codex-credential") != $(<"$data/runtime/adapter-claude-credential") ]] || die 'client credentials must differ'
 
 port=${PROJECT_ORCHESTRATOR_PORT:-3847}
-origin=${PROJECT_ORCHESTRATOR_ORIGIN:-http://127.0.0.1:$port}
-if [[ -n ${VSCODE_PROXY_URI:-} && $origin = http://127.0.0.1:$port ]]; then
-  origin=${VSCODE_PROXY_URI//\{\{port\}\}/$port}
+default_origin=${PROJECT_ORCHESTRATOR_ORIGIN:-http://127.0.0.1:$port}
+if [[ -n ${VSCODE_PROXY_URI:-} && $default_origin = http://127.0.0.1:$port ]]; then
+  default_origin=${VSCODE_PROXY_URI//\{\{port\}\}/$port}
 fi
-origin_host=${origin#*://}; origin_host=${origin_host%%/*}; origin_host=${origin_host%%:*}
-allowed_hosts=${PROJECT_ORCHESTRATOR_ALLOWED_HOSTS:-127.0.0.1,localhost,$origin_host}
+origins=${PROJECT_ORCHESTRATOR_ORIGINS:-$default_origin}
+origin=${origins%%,*}
+origin_hosts=()
+IFS=',' read -r -a configured_origins <<< "$origins"
+for configured_origin in "${configured_origins[@]}"; do
+  configured_origin=${configured_origin//[[:space:]]/}
+  origin_host=${configured_origin#*://}; origin_host=${origin_host%%/*}; origin_host=${origin_host%%:*}
+  [[ -n $origin_host ]] || die 'PROJECT_ORCHESTRATOR_ORIGINS must contain HTTP(S) origins'
+  origin_hosts+=("$origin_host")
+done
+origin_hosts_csv=$(IFS=,; printf '%s' "${origin_hosts[*]}")
+allowed_hosts=${PROJECT_ORCHESTRATOR_ALLOWED_HOSTS:-127.0.0.1,localhost,$origin_hosts_csv}
 cat > "$data/runtime/service.env" <<EOF
 HOME=$HOME
 PATH=$prefix/bin:$node_dir:/usr/local/bin:/usr/bin:/bin
@@ -120,12 +130,12 @@ PROJECT_ORCHESTRATOR_DB=$data/orchestrator.sqlite
 PROJECT_ORCHESTRATOR_OBJECTS=$data/objects
 PROJECT_ORCHESTRATOR_SOCKET=$data/runtime/control.sock
 PROJECT_ORCHESTRATOR_OPERATION_SOCKET=$data/runtime/operations.sock
-PROJECT_ORCHESTRATOR_WEB_TOKEN_FILE=$data/runtime/web-token
+PROJECT_ORCHESTRATOR_WEB_SESSION_SECRET_FILE=$data/runtime/web-session-secret
 PROJECT_ORCHESTRATOR_CODEX_CREDENTIAL_FILE=$data/runtime/adapter-codex-credential
 PROJECT_ORCHESTRATOR_CLAUDE_CREDENTIAL_FILE=$data/runtime/adapter-claude-credential
 PROJECT_ORCHESTRATOR_HOST=127.0.0.1
 PROJECT_ORCHESTRATOR_PORT=$port
-PROJECT_ORCHESTRATOR_ORIGIN=$origin
+PROJECT_ORCHESTRATOR_ORIGINS=$origins
 PROJECT_ORCHESTRATOR_ALLOWED_HOSTS=$allowed_hosts
 EOF
 chmod 600 "$data/runtime/service.env"
@@ -217,4 +227,4 @@ fi
 printf 'Installed Project Orchestrator %s (%s).\n' "$version" "$service_mode"
 printf 'Local listener: http://127.0.0.1:%s\n' "$port"
 printf 'Browser URL: %s/bootstrap\n' "$origin"
-printf 'Web token file: %s/runtime/web-token\n' "$data"
+printf 'First browser visit: create the local administrator account.\n'

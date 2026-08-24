@@ -159,7 +159,7 @@ it('keeps SSE open, resumes after Last-Event-ID, and streams newly appended even
   const events = new EventRepository(db);
   events.append('run','agent_note','install',{note:'one'});
   events.append('run','agent_note','install',{note:'two'});
-  const app=buildWebListener({db,content,webToken:'web',csrfToken:'csrf',allowedOrigin:'http://127.0.0.1',ssePollIntervalMs:10});
+  const app=buildWebListener({db,content,sessionSecret:'csrf',allowedOrigins:['http://127.0.0.1'],ssePollIntervalMs:10});
   await app.listen({host:'127.0.0.1',port:0});
   const address=app.server.address();
   if(address===null||typeof address==='string')throw new Error('listener unavailable');
@@ -185,13 +185,13 @@ it('awaits SIGTERM shutdown and removes the accepting Agent socket before exit',
   const databasePath=join(directory,'db.sqlite');const db=openDatabase(databasePath);migrate(db);
   const content=new ContentStore(join(directory,'objects'),db);const capabilities=content.putCanonicalJson({});const credential='adapter-secret';const now=new Date().toISOString();
   db.prepare("INSERT INTO client_installations(id,client_type,adapter_version,capability_object_id,credential_hash,status,last_seen_at) VALUES('install','codex','1',?,?,'active',?)").run(capabilities.id,createHash('sha256').update(credential).digest('hex'),now);db.close();
-  const webTokenPath=join(directory,'web-token');const adapterPath=join(directory,'adapter-token');writeFileSync(webTokenPath,'web');writeFileSync(`${webTokenPath}.csrf`,'csrf');writeFileSync(adapterPath,credential);chmodSync(webTokenPath,0o600);chmodSync(`${webTokenPath}.csrf`,0o600);chmodSync(adapterPath,0o600);
+  const webSessionSecretPath=join(directory,'web-session-secret');const adapterPath=join(directory,'adapter-token');writeFileSync(webSessionSecretPath,'web-session-secret');writeFileSync(adapterPath,credential);chmodSync(webSessionSecretPath,0o600);chmodSync(adapterPath,0o600);
   const socketPath=join(directory,'control.sock');
   const port=await availablePort();
-  const child=spawn(process.execPath,['apps/control-server/dist/main.js'],{cwd:process.cwd(),env:{...process.env,PROJECT_ORCHESTRATOR_DATA:directory,PROJECT_ORCHESTRATOR_DB:databasePath,PROJECT_ORCHESTRATOR_OBJECTS:join(directory,'objects'),PROJECT_ORCHESTRATOR_SOCKET:socketPath,PROJECT_ORCHESTRATOR_OPERATION_SOCKET:join(directory,'operations.sock'),PROJECT_ORCHESTRATOR_WEB_TOKEN_FILE:webTokenPath,PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE:adapterPath,PROJECT_ORCHESTRATOR_PORT:String(port)},stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath,['apps/control-server/dist/main.js'],{cwd:process.cwd(),env:{...process.env,PROJECT_ORCHESTRATOR_DATA:directory,PROJECT_ORCHESTRATOR_DB:databasePath,PROJECT_ORCHESTRATOR_OBJECTS:join(directory,'objects'),PROJECT_ORCHESTRATOR_SOCKET:socketPath,PROJECT_ORCHESTRATOR_OPERATION_SOCKET:join(directory,'operations.sock'),PROJECT_ORCHESTRATOR_WEB_SESSION_SECRET_FILE:webSessionSecretPath,PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE:adapterPath,PROJECT_ORCHESTRATOR_PORT:String(port)},stdio:['ignore','pipe','pipe']});
   const deadline=Date.now()+5_000;while(!existsSync(socketPath)&&Date.now()<deadline)await new Promise((resolve)=>setTimeout(resolve,20));
   expect(existsSync(socketPath)).toBe(true);const adapter=connect(socketPath);adapter.setEncoding('utf8');await once(adapter,'connect');adapter.write(`${JSON.stringify({kind:'bootstrap',credential,channel:'agent',scope:'root',canonical_project_path:directory})}\n`);const [challengeChunk]=await once(adapter,'data') as [string];const challenge=JSON.parse(challengeChunk.trim()) as {challenge:string};adapter.write(`${JSON.stringify({kind:'bind_root_session',challenge:challenge.challenge,session_id:'root',proof:createHmac('sha256',credential).update(`${challenge.challenge}\0root\0${directory}`).digest('base64url')})}\n`);await once(adapter,'data');
-  const origin=`http://127.0.0.1:${port}`;const cookie=await bootstrapCookie(origin,origin,'web');
+  const origin=`http://127.0.0.1:${port}`;const cookie=await bootstrapCookie(origin,origin);
   const response=await fetch(`${origin}/api/stream/events?run_id=missing`,{headers:{cookie}});expect(response.status).toBe(200);const reader=response.body!.getReader();const pendingRead=reader.read();
   child.kill('SIGTERM');const [code,signal]=await once(child,'exit') as [number|null,NodeJS.Signals|null];
   const closed=await Promise.race([pendingRead,new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('SSE_NOT_CLOSED')),2_000))]);

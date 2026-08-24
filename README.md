@@ -11,7 +11,7 @@ git clone https://github.com/weifashi/project-orchestrator.git
 cd project-orchestrator
 pnpm install --frozen-lockfile
 pnpm release
-bash release/project-orchestrator-0.1.16/install.sh --both
+bash release/project-orchestrator-0.1.17/install.sh --both
 ```
 
 The installer is idempotent. It creates private state under `~/.project-orchestrator`, immutable releases under `~/.local/share/project-orchestrator/releases`, command links under `~/.local/bin`, separate Codex/Claude adapter credentials, SQLite/CAS state, and the built-in workflow templates. It also registers both local plugin marketplaces.
@@ -24,11 +24,7 @@ For this workspace the expected URL is:
 https://3847--main--wfs--weifashi.coder.tbc.5ok.co/bootstrap
 ```
 
-Read the bootstrap token without putting it in shell history or a URL:
-
-```bash
-cat ~/.project-orchestrator/runtime/web-token
-```
+首次访问 `/bootstrap` 时创建本机管理员账号；以后使用账号和密码登录。公开注册会在第一个账号创建后自动关闭，Web token 不再用于登录。
 
 ## Operations
 
@@ -47,7 +43,7 @@ Current Linux data paths:
 ~/.project-orchestrator/objects/
 ~/.project-orchestrator/runtime/control.sock
 ~/.project-orchestrator/runtime/operations.sock
-~/.project-orchestrator/runtime/{web-token,adapter-codex-credential,adapter-claude-credential}
+~/.project-orchestrator/runtime/{web-session-secret,adapter-codex-credential,adapter-claude-credential}
 ```
 
 Backups, upgrade/rollback automation, uninstall/purge, and macOS LaunchAgents remain follow-up release work. Do not delete `~/.project-orchestrator` when replacing a release.

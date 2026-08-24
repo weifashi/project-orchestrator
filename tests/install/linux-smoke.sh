@@ -17,15 +17,15 @@ cp "$root/installer/linux/"*.service "$release/installer/linux/"
 home="$tmp/home"
 mkdir -p "$home"
 HOME="$home" PROJECT_ORCHESTRATOR_SKIP_MANIFEST=1 PROJECT_ORCHESTRATOR_SKIP_PLUGINS=1 bash "$release/install.sh" --both --no-start --prefix "$home/.local"
-first_web=$(cat "$home/.project-orchestrator/runtime/web-token")
+first_session_secret=$(cat "$home/.project-orchestrator/runtime/web-session-secret")
 first_codex=$(cat "$home/.project-orchestrator/runtime/adapter-codex-credential")
 HOME="$home" PROJECT_ORCHESTRATOR_SKIP_MANIFEST=1 PROJECT_ORCHESTRATOR_SKIP_PLUGINS=1 bash "$release/install.sh" --both --no-start --prefix "$home/.local"
 
-test "$(cat "$home/.project-orchestrator/runtime/web-token")" = "$first_web"
+test "$(cat "$home/.project-orchestrator/runtime/web-session-secret")" = "$first_session_secret"
 test "$(cat "$home/.project-orchestrator/runtime/adapter-codex-credential")" = "$first_codex"
 test -L "$home/.local/share/project-orchestrator/current"
 test "$(stat -c %a "$home/.project-orchestrator")" = 700
-test "$(stat -c %a "$home/.project-orchestrator/runtime/web-token")" = 600
+test "$(stat -c %a "$home/.project-orchestrator/runtime/web-session-secret")" = 600
 grep -q '127.0.0.1' "$home/.project-orchestrator/runtime/service.env"
 grep -q 'UMask=0077' "$home/.config/systemd/user/project-orchestratord.service"
 grep -q 'project-orchestrator-operations.service' "$home/.config/systemd/user/project-orchestratord.service"

@@ -42,8 +42,14 @@ it("logs in, validates the current session, and revokes it on logout", async () 
   const auth = createWebAuth(db, "test csrf key");
   await auth.registerFirstUser({ username: "owner", password: "twelve-char-password" });
 
-  await expect(auth.login({ username: "owner", password: "wrong-password" })).rejects.toThrow("INVALID_CREDENTIALS");
-  const login = await auth.login({ username: "owner", password: "twelve-char-password" });
+  for (let attempt = 0; attempt < 4; attempt += 1)
+    await expect(auth.login({ username: "owner", password: "wrong-password" }, "browser-a"))
+      .rejects.toThrow("INVALID_CREDENTIALS");
+  await expect(auth.login({ username: "owner", password: "wrong-password" }, "browser-a"))
+    .rejects.toThrow("INVALID_CREDENTIALS");
+  await expect(auth.login({ username: "owner", password: "twelve-char-password" }, "browser-a"))
+    .rejects.toThrow("LOGIN_RATE_LIMITED");
+  const login = await auth.login({ username: "owner", password: "twelve-char-password" }, "browser-b");
   expect(auth.session(login.sessionToken)).toMatchObject({ username: "owner", csrfToken: login.csrfToken });
   auth.logout(login.sessionToken);
   expect(auth.session(login.sessionToken)).toBeUndefined();

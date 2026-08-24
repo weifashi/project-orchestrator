@@ -68,7 +68,7 @@ it('serves health through the configured Coder host while the app remains loopba
   const content = new ContentStore(join(directory, 'objects'), db);
   const origin = 'https://3847--main--wfs--weifashi.coder.example';
   const app = buildWebListener({
-    db, content, webToken: 'web', csrfToken: 'csrf', allowedOrigin: origin,
+    db, content, sessionSecret: 'csrf', allowedOrigins: [origin],
     allowedHosts: ['127.0.0.1', 'localhost', '3847--main--wfs--weifashi.coder.example'],
   });
   const health = await app.inject({

@@ -18,8 +18,9 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   mkdirSync(join(staticDirectory, "assets"), { recursive: true });
   writeFileSync(join(staticDirectory, "index.html"), '<meta name="csrf-token" content="__PO_CSRF_TOKEN__"><div id="root"></div>');
   writeFileSync(join(staticDirectory, "assets", "app-abc123.js"), 'console.log("local")');
-  const origin = "https://3847--main--wfs--weifashi.coder.example";
-  const app = buildWebListener({ db, content: new ContentStore(join(directory, "objects"), db), sessionSecret: "csrf-secret", allowedOrigins: [origin], allowedHosts: ["3847--main--wfs--weifashi.coder.example"], staticDirectory });
+  const coderOrigin = "https://3847--main--wfs--weifashi.coder.example";
+  const publicOrigin = "https://orchestrator.co.weifashi.example";
+  const app = buildWebListener({ db, content: new ContentStore(join(directory, "objects"), db), sessionSecret: "csrf-secret", allowedOrigins: [coderOrigin, publicOrigin], allowedHosts: ["3847--main--wfs--weifashi.coder.example", "orchestrator.co.weifashi.example"], staticDirectory });
   const host = "3847--main--wfs--weifashi.coder.example";
 
   const registration = await app.inject({ method: "GET", url: "/bootstrap", headers: { host } });
@@ -27,9 +28,11 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   expect(registration.body).toContain("创建管理员账号");
   expect(registration.body).not.toContain("Web token");
   expect(registration.headers["content-security-policy"]).toMatch(/style-src 'self' 'nonce-[A-Za-z0-9_-]+'/);
+  expect((await app.inject({ method: "GET", url: "/bootstrap", headers: { host: "orchestrator.co.weifashi.example", origin: publicOrigin } })).statusCode).toBe(200);
+  expect((await app.inject({ method: "GET", url: "/bootstrap", headers: { host, origin: "https://evil.example" } })).statusCode).toBe(403);
   const created = await app.inject({
     method: "POST", url: "/bootstrap/register",
-    headers: { host, origin, "content-type": "application/x-www-form-urlencoded" },
+    headers: { host, origin: coderOrigin, "content-type": "application/x-www-form-urlencoded" },
     payload: new URLSearchParams({ username: "owner", password: "twelve-char-password", confirm_password: "twelve-char-password" }).toString(),
   });
   expect(created.statusCode).toBe(302);
@@ -46,7 +49,7 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   const asset = await app.inject({ method: "GET", url: "/assets/app-abc123.js", headers: { host, cookie } });
   expect(asset.statusCode).toBe(200);
   expect(asset.headers["cache-control"]).toContain("immutable");
-  const logout = await app.inject({ method: "POST", url: "/logout", headers: { host, origin, cookie } });
+  const logout = await app.inject({ method: "POST", url: "/logout", headers: { host, origin: coderOrigin, cookie } });
   expect(logout.statusCode).toBe(302);
   expect(String(logout.headers["set-cookie"])).toContain("Max-Age=0");
   expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host, cookie } })).statusCode).toBe(403);

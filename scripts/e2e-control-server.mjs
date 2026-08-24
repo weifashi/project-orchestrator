@@ -12,7 +12,7 @@ import {
   ConfigService,
   seedBuiltins,
 } from "../packages/orchestrator-service/dist/index.js";
-import { buildWebListener } from "../apps/control-server/dist/app.js";
+import { buildWebListener, createWebAuth } from "../apps/control-server/dist/app.js";
 
 const directory = mkdtempSync(join(tmpdir(), "orchestrator-web-e2e-"));
 chmodSync(directory, 0o700);
@@ -47,12 +47,15 @@ db.prepare(
   "e2e-session",
   now,
 );
+await createWebAuth(db, "e2e-session-secret").registerFirstUser({
+  username: "owner",
+  password: "twelve-char-password",
+});
 const app = buildWebListener({
   db,
   content,
-  webToken: "e2e-web-token",
-  csrfToken: "e2e-csrf",
-  allowedOrigin: "http://127.0.0.1:4173",
+  sessionSecret: "e2e-session-secret",
+  allowedOrigins: ["http://127.0.0.1:4173"],
   staticDirectory: resolve("apps/web-console/dist"),
 });
 await app.listen({ host: "127.0.0.1", port: 4173 });
