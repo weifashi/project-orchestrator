@@ -12,6 +12,7 @@ import { useI18n } from "../i18n";
 
 type NodeData = { stage: WorkflowStage; label: string; meta: string; quickAddLabel: string; selected?: boolean; state?: string; stateLabel?: string; onQuickAdd?: (key: string) => void };
 type GroupData = { label: string; count: number; summary: string; expandLabel: string; onExpand?: () => void };
+type ContextMenu = { kind: "node" | "edge"; id: string; x: number; y: number; locked?: boolean };
 type Props = {
   envelope: WorkflowVersionEnvelope;
   roles: RoleSummary[];
@@ -50,6 +51,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const { t } = useI18n();
   const [selected, setSelected] = useState<string>();
   const [selectedEdge, setSelectedEdge] = useState<string>();
+  const [contextMenu, setContextMenu] = useState<ContextMenu>();
   const [paletteOpen, setPaletteOpen] = useState(false), [query, setQuery] = useState("");
   const flow = useRef<ReactFlowInstance | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
@@ -84,6 +86,24 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
     });
   }, [endpoint, envelope.data.edges, selectedEdge, stageStates, t]);
   const select = useCallback((key?: string) => { setSelected(key); onSelect?.(key); }, [onSelect]);
+  const openContextMenu = useCallback((event: { preventDefault: () => void; stopPropagation: () => void; clientX: number; clientY: number }, kind: ContextMenu["kind"], id: string, locked = false) => {
+    if (readonly) return;
+    event.preventDefault(); event.stopPropagation();
+    const rect = stageRef.current?.getBoundingClientRect();
+    const menuWidth = 174, menuHeight = 46;
+    const x = rect ? Math.max(8, Math.min(event.clientX - rect.left, Math.max(8, rect.width - menuWidth - 8))) : event.clientX;
+    const y = rect ? Math.max(8, Math.min(event.clientY - rect.top, Math.max(8, rect.height - menuHeight - 8))) : event.clientY;
+    if (kind === "node") { select(id); setSelectedEdge(undefined); } else { select(undefined); setSelectedEdge(id); }
+    setContextMenu({ kind, id, x, y, locked });
+  }, [readonly, select]);
+  const removeContextSelection = useCallback(() => {
+    if (!contextMenu || contextMenu.locked) return;
+    const next = contextMenu.kind === "node"
+      ? removeGraphSelection(envelope, [contextMenu.id], [])
+      : removeGraphSelection(envelope, [], [contextMenu.id]);
+    if (next !== envelope) onChange?.(next);
+    setContextMenu(undefined); select(undefined); setSelectedEdge(undefined);
+  }, [contextMenu, envelope, onChange, select]);
   const writePositions = (changes: NodeChange<Node>[]) => {
     if (readonly) return;
     applyNodeChanges(changes);
@@ -132,7 +152,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   return <div className={`workflow-canvas-layout ${readonly ? "is-readonly" : ""}`}>
     <section ref={stageRef} className="canvas-stage n8n-canvas" aria-label={readonly ? t("runCanvas") : t("workflowEditor")} tabIndex={0} onKeyDown={(event) => {
       if (interactiveTarget(event.target)) return;
-      if (event.key === "Escape") { event.preventDefault(); setPaletteOpen(false); setSelectedEdge(undefined); select(undefined); }
+      if (event.key === "Escape") { event.preventDefault(); setPaletteOpen(false); setContextMenu(undefined); setSelectedEdge(undefined); select(undefined); }
       if (!readonly && event.key.toLowerCase() === "f") { event.preventDefault(); void flow.current?.fitView({ padding: 0.16, duration: 180 }); }
       if (!readonly && (event.key === "Delete" || event.key === "Backspace")) {
         const next = selected ? removeGraphSelection(envelope, [selected], []) : selectedEdge ? removeGraphSelection(envelope, [], [selectedEdge]) : envelope;
@@ -140,9 +160,12 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
       }
     }}>
       {!readonly && nodes.length > 0 && <div className="canvas-floating-actions"><button className="button primary" type="button" onClick={() => setPaletteOpen(true)}>{t("addNode")}</button><button className="button ghost" type="button" onClick={() => onChange?.(autoLayout(envelope))}>{t("autoLayout")}</button><button className="button ghost" type="button" onClick={fitCanvas}>{t("fitCanvas")}</button></div>}
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView={false} defaultViewport={{ x: envelope.data.canvas?.viewport_x ?? 0, y: envelope.data.canvas?.viewport_y ?? 0, zoom: envelope.data.canvas?.viewport_zoom ?? 1 }} onInit={(instance) => { flow.current = instance; if (!initialHasSavedViewport.current && nodes.length) requestAnimationFrame(fitCanvas); }} nodesDraggable={!readonly} nodesConnectable={!readonly} elementsSelectable onNodeClick={(_, node) => { setSelectedEdge(undefined); if (node.type === "stage") select(node.id); }} onEdgeClick={(_, edge) => { select(undefined); setSelectedEdge(edge.id); }} onPaneClick={() => { select(undefined); setSelectedEdge(undefined); }} onNodesChange={writePositions} onNodesDelete={(deleted) => { if (!readonly) onChange?.(removeGraphSelection(envelope, deleted.map((node) => node.id), [])); }} onEdgesDelete={(deleted) => { if (!readonly) { onChange?.(removeGraphSelection(envelope, [], deleted.map((edge) => edge.id))); setSelectedEdge(undefined); } }} onConnect={onConnect} onMoveEnd={onMoveEnd} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("application/project-orchestrator-role"); const role = roles.find((item) => item.id === id); if (role) addRole(role, flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })); }} onDragOver={(event) => { if (!readonly) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}>
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView={false} defaultViewport={{ x: envelope.data.canvas?.viewport_x ?? 0, y: envelope.data.canvas?.viewport_y ?? 0, zoom: envelope.data.canvas?.viewport_zoom ?? 1 }} onInit={(instance) => { flow.current = instance; if (!initialHasSavedViewport.current && nodes.length) requestAnimationFrame(fitCanvas); }} nodesDraggable={!readonly} nodesConnectable={!readonly} elementsSelectable onNodeClick={(_, node) => { setContextMenu(undefined); setSelectedEdge(undefined); if (node.type === "stage") select(node.id); }} onEdgeClick={(_, edge) => { setContextMenu(undefined); select(undefined); setSelectedEdge(edge.id); }} onNodeContextMenu={(event, node) => { if (node.type === "stage") openContextMenu(event, "node", node.id, Boolean((node.data as NodeData).stage.mandatory_gate)); }} onEdgeContextMenu={(event, edge) => openContextMenu(event, "edge", edge.id)} onPaneClick={() => { setContextMenu(undefined); select(undefined); setSelectedEdge(undefined); }} onPaneContextMenu={(event) => { event.preventDefault(); setContextMenu(undefined); }} onNodesChange={writePositions} onNodesDelete={(deleted) => { if (!readonly) onChange?.(removeGraphSelection(envelope, deleted.map((node) => node.id), [])); }} onEdgesDelete={(deleted) => { if (!readonly) { onChange?.(removeGraphSelection(envelope, [], deleted.map((edge) => edge.id))); setSelectedEdge(undefined); } }} onConnect={onConnect} onMoveEnd={onMoveEnd} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("application/project-orchestrator-role"); const role = roles.find((item) => item.id === id); if (role) addRole(role, flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })); }} onDragOver={(event) => { if (!readonly) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}>
         <Background gap={18} size={1} /><Controls showInteractive={false} />
       </ReactFlow>
+      {contextMenu && !readonly && <div className="canvas-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onContextMenu={(event) => event.preventDefault()} onPointerDown={(event) => event.stopPropagation()}>
+        <button type="button" role="menuitem" className="canvas-context-menu-delete" disabled={contextMenu.locked} onClick={removeContextSelection}>{contextMenu.locked ? t("mandatoryGateLocked") : t(contextMenu.kind === "node" ? "deleteNode" : "deleteConnection")}</button>
+      </div>}
       {!readonly && !nodes.length && <div className="canvas-empty-state" data-testid="canvas-empty-state"><span className="canvas-empty-mark" aria-hidden>＋</span><h2>{t("emptyCanvasTitle")}</h2><p>{t("emptyCanvasDescription")}</p><button className="button primary" type="button" onClick={() => setPaletteOpen(true)}>{t("addNode")}</button></div>}
       {diagnostics.length > 0 && nodes.length > 0 && !readonly && <div className="canvas-diagnostics" role="status">{diagnostics.map((item) => <span key={`${item.code}-${item.stageKeys.join()}`}>● {t(`graph_${item.code}`)}：{item.stageKeys.map(label).join("、")}</span>)}</div>}
     </section>

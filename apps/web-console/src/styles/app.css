@@ -823,4 +823,8 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 .node-output-handle.react-flow__handle:hover::after,.node-output-handle.react-flow__handle:focus-visible::after { background: #ff6d5a; color: #301411; }
 .node-output-handle.react-flow__handle:focus-visible { outline: 3px solid #ffb3a8; outline-offset: 3px; }
 .react-flow__edge.edge-selected .react-flow__edge-path { stroke: #ff806f; stroke-width: 3; }
+.canvas-context-menu { position:absolute; z-index:30; min-width:174px; padding:5px; border:1px solid #565656; border-radius:9px; background:#2d2d2d; box-shadow:0 14px 34px rgba(0,0,0,.42); }
+.canvas-context-menu button { display:flex; align-items:center; width:100%; min-height:36px; padding:8px 10px; border:0; border-radius:6px; background:transparent; color:#f6b0a8; cursor:pointer; font:inherit; font-size:.84rem; font-weight:750; text-align:left; }
+.canvas-context-menu button:hover:not(:disabled),.canvas-context-menu button:focus-visible:not(:disabled) { background:rgba(255,109,90,.16); outline:0; }
+.canvas-context-menu button:disabled { color:#8b8b8b; cursor:not-allowed; }
 @media (min-width: 981px) { .role-market { left: auto; right: 18px; } }
