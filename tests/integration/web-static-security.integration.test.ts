@@ -125,6 +125,14 @@ it("bootstraps an HttpOnly local session and serves SPA assets under a closed CS
     headers: { host: "127.0.0.1", cookie },
   });
   expect(session.json()).toEqual({ csrf_token: "csrf-secret" });
+  expect(session.headers["cache-control"]).toContain("no-store");
+  const dynamicRead = await app.inject({
+    method: "GET",
+    url: "/api/read/system/status",
+    headers: { host: "127.0.0.1", cookie },
+  });
+  expect(dynamicRead.statusCode).toBe(200);
+  expect(dynamicRead.headers["cache-control"]).toContain("no-store");
   expect(
     (
       await app.inject({

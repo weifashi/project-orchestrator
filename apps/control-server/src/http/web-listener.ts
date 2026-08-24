@@ -140,6 +140,8 @@ export function buildWebListener(input: WebListenerInput): WebListener {
     return reply.code(status).send({ error: message });
   });
   app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/"))
+      reply.header("Cache-Control", "no-store");
     reply
       .header("Content-Security-Policy", buildCsp(bootstrapStyleNonce))
       .header("X-Content-Type-Options", "nosniff")
