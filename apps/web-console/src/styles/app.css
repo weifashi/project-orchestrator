@@ -809,6 +809,7 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 /* Keep workflow-wide actions available while a node inspector is open. */
 @media (min-width: 981px) {
   .canvas-drawer { top: 132px; max-height: calc(100dvh - 150px); }
+  main > .page.canvas-page { width: 100%; max-width: none; margin: 0; }
 }
 /* The minimap is intentionally removed: it consumed space without helping this compact editor. */
 .react-flow__minimap { display: none !important; }

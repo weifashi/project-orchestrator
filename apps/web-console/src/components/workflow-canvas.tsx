@@ -36,12 +36,14 @@ const GroupNode = memo(function GroupNode({ data }: { data: GroupData }) {
   return <button className="workflow-group-node nodrag" type="button" onClick={data.onExpand} aria-label={data.expandLabel}><strong>{data.label}</strong><span>{data.summary}</span></button>;
 });
 const nodeTypes = { stage: StageNode, group: GroupNode };
+const emptyStageStates: Record<string, string> = {};
 const defaultStage = (key: string, roleVersionId: string): WorkflowStage => ({ key, role_version_id: roleVersionId, optional: false, mandatory_gate: false, failure_policy: "pause", max_attempts: 1, requires_confirmation: false });
 const uniqueKey = (base: string, stages: WorkflowStage[]) => { let count = 1, key = base; const all = new Set(stages.map((stage) => stage.key)); while (all.has(key)) key = `${base}-${++count}`; return key; };
 const category = (slug: string) => slug.includes("research") || slug.includes("require") ? "categoryResearch" : slug.includes("architecture") || slug.includes("ui") ? "categoryDesign" : slug.includes("test") || slug.includes("review") || slug.includes("security") ? "categoryQuality" : slug.includes("operation") ? "categoryDelivery" : slug.includes("memory") ? "categoryMemory" : "categoryDevelopment";
 const interactiveTarget = (target: EventTarget | null) => target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
 
-export function WorkflowCanvas({ envelope, roles, label, readonly = false, stageStates = {}, onChange, onSelect }: Props) {
+export function WorkflowCanvas({ envelope, roles, label, readonly = false, stageStates: stageStatesInput, onChange, onSelect }: Props) {
+  const stageStates = stageStatesInput ?? emptyStageStates;
   const { t } = useI18n();
   const [selected, setSelected] = useState<string>();
   const [paletteOpen, setPaletteOpen] = useState(false), [query, setQuery] = useState("");

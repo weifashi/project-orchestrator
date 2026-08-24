@@ -48,6 +48,20 @@ test("workflow canvas owns the desktop viewport instead of creating a document s
   await page.close();
 });
 
+test("workflow canvas uses the full desktop workspace", async ({ browser }) => {
+  const page = await browser.newPage({ viewport: { width: 2400, height: 900 } });
+  await mockApi(page);
+  await page.goto("/workflows/workflow-1");
+  await expect(page.locator(".canvas-stage")).toBeVisible();
+  const size = await page.evaluate(() => {
+    const main = document.querySelector("main")?.getBoundingClientRect();
+    const canvas = document.querySelector(".canvas-stage")?.getBoundingClientRect();
+    return { main: main?.width ?? 0, canvas: canvas?.width ?? 0 };
+  });
+  expect(size.canvas).toBeGreaterThanOrEqual(size.main - 112);
+  await page.close();
+});
+
 test("long role directories scroll inside the application shell", async ({ browser }) => {
   const page = await browser.newPage({ viewport: { width: 1568, height: 900 } });
   await mockApi(page);
