@@ -81,7 +81,11 @@ test("clicking the output plus still opens quick role add", async ({ page }) => 
   await page.goto("/workflows/workflow-1");
 
   await page.locator(".react-flow__node").first().locator(".node-output-handle").click();
-  await expect(page.getByRole("dialog", { name: /Add node|添加节点/ })).toBeVisible();
+  const market = page.getByRole("dialog", { name: /Add node|添加节点/ });
+  await expect(market).toBeVisible();
+  const rightGap = await market.evaluate((element) => window.innerWidth - element.getBoundingClientRect().right);
+  expect(rightGap).toBeGreaterThanOrEqual(10);
+  expect(rightGap).toBeLessThanOrEqual(24);
 });
 
 test("a selected connection can be deleted with the Delete key", async ({ page }) => {
