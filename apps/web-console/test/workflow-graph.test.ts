@@ -12,10 +12,10 @@ describe("workflow canvas graph", () => {
     expect(toggleCanvasGroup(grouped, "quality").data.canvas?.groups?.[0]?.collapsed).toBe(true);
     expect(grouped.data.stages).toHaveLength(3);
   });
-  it("does not remove a mandatory gate or an edge attached to it", () => {
+  it("keeps a mandatory gate but permits editing a selected connection", () => {
     const input = workflow();
     expect(removeGraphSelection(input, ["testing"], [])).toBe(input);
-    expect(removeGraphSelection(input, [], ["testing-operations-1"])).toBe(input);
+    expect(removeGraphSelection(input, [], ["testing-operations-1"]).data.edges).toEqual([{ from: "requirements", to: "testing", edge_type: "requires" }]);
   });
   it("keeps drag positions inside the canvas until the pointer is released", () => {
     const moving = trackCanvasNodePositions({}, [

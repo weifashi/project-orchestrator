@@ -83,8 +83,7 @@ export const removeGraphSelection = (envelope: WorkflowVersionEnvelope, stageKey
   const stages = new Set(stageKeys);
   const protectedStage = envelope.data.stages.some((stage) => stages.has(stage.key) && stage.mandatory_gate);
   const indexedEdges = envelope.data.edges.map((edge, index) => ({ edge, id: `${edge.from}-${edge.to}-${index}` }));
-  const protectedEdge = indexedEdges.some(({ edge, id }) => edgeIds.includes(id) && (envelope.data.stages.some((stage) => stage.mandatory_gate && (stage.key === edge.from || stage.key === edge.to))));
-  if (protectedStage || protectedEdge) return envelope;
+  if (protectedStage) return envelope;
   const removableStages = envelope.data.stages.filter((stage) => !stages.has(stage.key));
   if (!removableStages.length) return envelope;
   const edges = indexedEdges
