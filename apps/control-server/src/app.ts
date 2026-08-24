@@ -2,6 +2,7 @@ export * from './config.js';
 export * from './http/routes/config.js';
 export * from './http/sse.js';
 export * from './http/web-listener.js';
+export * from './http/web-auth.js';
 export * from './ipc/agent-listener.js';
 export * from './ipc/control-dispatcher.js';
 export * from './ipc/operation-helper-client.js';
