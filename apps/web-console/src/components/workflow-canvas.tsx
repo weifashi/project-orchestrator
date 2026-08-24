@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Background, Controls, Handle, MiniMap, Position, ReactFlow,
+  Background, Controls, Handle, Position, ReactFlow,
   type Connection, type Edge, type Node, type NodeChange, type OnMoveEnd, type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -47,22 +47,25 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const [paletteOpen, setPaletteOpen] = useState(false), [query, setQuery] = useState("");
   const flow = useRef<ReactFlowInstance | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
+  const livePositionsRef = useRef<Record<string, CanvasPosition>>({});
+  const [livePositions, setLivePositions] = useState<Record<string, CanvasPosition>>({});
   const positions = useMemo(() => nodePositions(envelope.data), [envelope.data]);
+  const displayedPositions = useMemo(() => ({ ...positions, ...livePositions }), [livePositions, positions]);
   const diagnostics = useMemo(() => validateGraph(envelope.data.stages, envelope.data.edges), [envelope.data.stages, envelope.data.edges]);
   const collapsed = useMemo(() => envelope.data.canvas?.groups?.filter((group) => group.collapsed) ?? [], [envelope.data.canvas?.groups]);
   const groupFor = useCallback((key: string) => collapsed.find((group) => group.stage_keys.includes(key)), [collapsed]);
   const endpoint = useCallback((key: string) => groupFor(key)?.id ?? key, [groupFor]);
   const nodes = useMemo<Node[]>(() => {
     const stages = envelope.data.stages.filter((stage) => !groupFor(stage.key)).map((stage) => ({
-      id: stage.key, type: "stage", position: positions[stage.key]!, data: { stage, label: label(stage.key), selected: selected === stage.key, state: stageStates[stage.key] ?? "queued", meta: stage.mandatory_gate ? t("mandatoryGate") : stage.optional ? t("optionalStage") : t("stage"), quickAddLabel: t("addNode"), ...(!readonly ? { onQuickAdd: (key: string) => { setSelected(key); setPaletteOpen(true); } } : {}) },
+      id: stage.key, type: "stage", position: displayedPositions[stage.key]!, data: { stage, label: label(stage.key), selected: selected === stage.key, state: stageStates[stage.key] ?? "queued", meta: stage.mandatory_gate ? t("mandatoryGate") : stage.optional ? t("optionalStage") : t("stage"), quickAddLabel: t("addNode"), ...(!readonly ? { onQuickAdd: (key: string) => { setSelected(key); setPaletteOpen(true); } } : {}) },
     }));
     const summaries = collapsed.map((group) => {
-      const memberPositions = group.stage_keys.map((key) => positions[key]).filter((value): value is CanvasPosition => value !== undefined);
+      const memberPositions = group.stage_keys.map((key) => displayedPositions[key]).filter((value): value is CanvasPosition => value !== undefined);
       const position = memberPositions.reduce<CanvasPosition>((sum, item) => ({ x: sum.x + item.x, y: sum.y + item.y }), { x: 0, y: 0 });
       return { id: group.id, type: "group", position: { x: memberPositions.length ? position.x / memberPositions.length : 42, y: memberPositions.length ? position.y / memberPositions.length : 48 }, draggable: false, connectable: false, data: { label: group.label, count: group.stage_keys.length, summary: `${group.stage_keys.length} · ${t("expandGroup")}`, expandLabel: `${t("expandGroup")} ${group.label}`, onExpand: () => { onChange?.(toggleCanvasGroup(envelope, group.id)); } } };
     });
     return [...stages, ...summaries];
-  }, [collapsed, envelope, groupFor, label, onChange, positions, readonly, selected, stageStates, t]);
+  }, [collapsed, displayedPositions, envelope, groupFor, label, onChange, readonly, selected, stageStates, t]);
   const edges = useMemo<Edge[]>(() => {
     const unique = new Set<string>();
     return envelope.data.edges.flatMap((edge, index) => {
@@ -76,10 +79,16 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const select = useCallback((key?: string) => { setSelected(key); onSelect?.(key); }, [onSelect]);
   const writePositions = (changes: NodeChange<Node>[]) => {
     if (readonly || !onChange) return;
-    const moved = changes.filter((change): change is Extract<NodeChange<Node>, { type: "position" }> => change.type === "position" && Boolean(change.position) && !change.dragging && envelope.data.stages.some((stage) => stage.key === change.id));
+    const moved = changes.filter((change): change is Extract<NodeChange<Node>, { type: "position" }> => change.type === "position" && Boolean(change.position) && envelope.data.stages.some((stage) => stage.key === change.id));
     if (!moved.length) return;
-    const next = { ...positions }; for (const change of moved) next[change.id] = change.position!;
-    onChange(updateCanvas(envelope, next));
+    const nextLive = { ...livePositionsRef.current };
+    for (const change of moved) nextLive[change.id] = change.position!;
+    livePositionsRef.current = nextLive;
+    setLivePositions(nextLive);
+    if (moved.every((change) => change.dragging)) return;
+    onChange(updateCanvas(envelope, { ...positions, ...nextLive }));
+    livePositionsRef.current = {};
+    setLivePositions({});
   };
   const addRole = (role: RoleSummary, position?: { x: number; y: number }) => {
     if (readonly || !onChange || !role.current_version_id) return;
@@ -124,7 +133,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
     }}>
       {!readonly && nodes.length > 0 && <div className="canvas-floating-actions"><button className="button primary" type="button" onClick={() => setPaletteOpen(true)}>{t("addNode")}</button><button className="button ghost" type="button" onClick={() => onChange?.(autoLayout(envelope))}>{t("autoLayout")}</button><button className="button ghost" type="button" onClick={fitCanvas}>{t("fitCanvas")}</button></div>}
       <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView={false} defaultViewport={{ x: envelope.data.canvas?.viewport_x ?? 0, y: envelope.data.canvas?.viewport_y ?? 0, zoom: envelope.data.canvas?.viewport_zoom ?? 1 }} onInit={(instance) => { flow.current = instance; if (!initialHasSavedViewport.current && nodes.length) requestAnimationFrame(fitCanvas); }} nodesDraggable={!readonly} nodesConnectable={!readonly} elementsSelectable onNodeClick={(_, node) => { if (node.type === "stage") select(node.id); }} onPaneClick={() => select(undefined)} onNodesChange={writePositions} onNodesDelete={(deleted) => { if (!readonly) onChange?.(removeGraphSelection(envelope, deleted.map((node) => node.id), [])); }} onEdgesDelete={(deleted) => { if (!readonly) onChange?.(removeGraphSelection(envelope, [], deleted.map((edge) => edge.id))); }} onConnect={onConnect} onMoveEnd={onMoveEnd} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("application/project-orchestrator-role"); const role = roles.find((item) => item.id === id); if (role) addRole(role, flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })); }} onDragOver={(event) => { if (!readonly) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}>
-        <Background gap={18} size={1} /><Controls showInteractive={false} /><MiniMap pannable zoomable />
+        <Background gap={18} size={1} /><Controls showInteractive={false} />
       </ReactFlow>
       {!readonly && !nodes.length && <div className="canvas-empty-state" data-testid="canvas-empty-state"><span className="canvas-empty-mark" aria-hidden>＋</span><h2>{t("emptyCanvasTitle")}</h2><p>{t("emptyCanvasDescription")}</p><button className="button primary" type="button" onClick={() => setPaletteOpen(true)}>{t("addNode")}</button></div>}
       {diagnostics.length > 0 && nodes.length > 0 && !readonly && <div className="canvas-diagnostics" role="status">{diagnostics.map((item) => <span key={`${item.code}-${item.stageKeys.join()}`}>● {t(`graph_${item.code}`)}：{item.stageKeys.map(label).join("、")}</span>)}</div>}

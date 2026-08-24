@@ -8,6 +8,7 @@ test("n8n style authoring opens a role market without exposing Run controls", as
   await expect(page.getByRole("region", { name: /Workflow canvas|编排画布/ })).toBeVisible();
   await expect(page.locator(".canvas-stage.n8n-canvas")).toBeVisible();
   await expect(page.locator(".workflow-node")).toHaveCount(2);
+  await expect(page.locator(".react-flow__minimap")).toHaveCount(0);
   await page.getByRole("button", { name: /Add node|添加节点/ }).first().click();
   await expect(page.getByRole("dialog", { name: /Add node|添加节点/ })).toBeVisible();
   await page.getByRole("searchbox", { name: /Search roles|搜索角色/ }).fill("architecture");
