@@ -38,3 +38,12 @@ for (const width of [390, 768, 1280, 1568])
     }
     await page.close();
   });
+
+test("workflow canvas owns the desktop viewport instead of creating a document scrollbar", async ({ browser }) => {
+  const page = await browser.newPage({ viewport: { width: 1568, height: 900 } });
+  await mockApi(page);
+  await page.goto("/workflows/workflow-1");
+  await page.waitForLoadState("networkidle");
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(900);
+  await page.close();
+});
