@@ -27,6 +27,8 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   expect(registration.statusCode).toBe(200);
   expect(registration.body).toContain("创建管理员账号");
   expect(registration.body).not.toContain("Web token");
+  expect(registration.body).not.toContain('name="password" type="password" autocomplete="new-password" required minlength');
+  expect(registration.body).not.toContain('name="confirm_password" type="password" autocomplete="new-password" required minlength');
   const cspNonce = String(registration.headers["content-security-policy"]).match(/style-src 'self' 'nonce-([A-Za-z0-9_-]+)'/)?.[1];
   const styleNonce = registration.body.match(/<style nonce="([A-Za-z0-9_-]+)">/)?.[1];
   expect(cspNonce).toBe(styleNonce);
