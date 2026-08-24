@@ -8,7 +8,7 @@ export type ControlConfig = {
   objectsPath: string;
   controlSocketPath: string;
   operationSocketPath: string;
-  webHost: "127.0.0.1";
+  webHost: "127.0.0.1" | "0.0.0.0";
   webPort: number;
   webSessionSecret: string;
   adapterCredential: string;
@@ -61,7 +61,9 @@ const parseOrigins = (value: string): readonly string[] => {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlConfig {
   const dataDirectory = resolve(env["PROJECT_ORCHESTRATOR_DATA"] ?? `${env["HOME"] ?? "."}/.project-orchestrator`);
   ensurePrivateDirectory(dataDirectory);
-  if ((env["PROJECT_ORCHESTRATOR_HOST"] ?? "127.0.0.1") !== "127.0.0.1") throw new Error("POLICY_VIOLATION: web listener must be loopback");
+  const lanAccess = env["PROJECT_ORCHESTRATOR_LAN_ACCESS"] === "1";
+  const webHost = env["PROJECT_ORCHESTRATOR_HOST"] ?? (lanAccess ? "0.0.0.0" : "127.0.0.1");
+  if (webHost !== "127.0.0.1" && (!lanAccess || webHost !== "0.0.0.0")) throw new Error("POLICY_VIOLATION: web listener must be loopback or configured LAN");
   const webSessionSecretFile = sessionSecretPath(env, dataDirectory);
   ensureWebSessionSecret(webSessionSecretFile);
   const webSessionSecret = secret(webSessionSecretFile);
@@ -78,7 +80,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlConfig 
   if (!allowedHosts.length || allowedHosts.some((value) => value.includes("/") || value.includes(":"))) throw new Error("CONFIG_INVALID: allowed hosts");
   return {
     dataDirectory, databasePath: resolve(env["PROJECT_ORCHESTRATOR_DB"] ?? `${dataDirectory}/orchestrator.sqlite`), objectsPath: resolve(env["PROJECT_ORCHESTRATOR_OBJECTS"] ?? `${dataDirectory}/objects`), controlSocketPath, operationSocketPath,
-    webHost: "127.0.0.1", webPort, webSessionSecret, adapterCredential, allowedOrigins, allowedHosts,
+    webHost, webPort, webSessionSecret, adapterCredential, allowedOrigins, allowedHosts,
     ...(env["PROJECT_ORCHESTRATOR_WEB_STATIC"] === undefined ? {} : { staticDirectory: resolve(env["PROJECT_ORCHESTRATOR_WEB_STATIC"]) }), maxFrameBytes: 256 * 1024,
   };
 }

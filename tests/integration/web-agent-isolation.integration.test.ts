@@ -119,3 +119,34 @@ it("uses a stored account session instead of accepting a legacy bootstrap token"
   expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "127.0.0.1", cookie } })).statusCode).toBe(200);
   await app.close(); db.close();
 });
+
+it("requires an account only on public hosts while allowing trusted LAN access", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "web-lan-"));
+  dirs.push(dir);
+  const db = openDatabase(join(dir, "db"));
+  migrate(db);
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('lan','lan','LAN','feature','active',?,?)")
+    .run(now, now);
+  const publicOrigin = "https://3847--main--wfs--weifashi.coder.example";
+  const app = buildWebListener({
+    db,
+    content: new ContentStore(join(dir, "objects"), db),
+    sessionSecret: "csrf",
+    allowedOrigins: [publicOrigin],
+    allowedHosts: ["127.0.0.1", "3847--main--wfs--weifashi.coder.example"],
+  });
+
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "3847--main--wfs--weifashi.coder.example" } })).statusCode).toBe(403);
+  const lan = { host: "127.0.0.1" };
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: lan })).statusCode).toBe(200);
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "192.168.1.20" } })).statusCode).toBe(200);
+  expect((await app.inject({ method: "GET", url: "/api/read/session", headers: lan })).json()).toEqual({ csrf_token: "lan-bypass" });
+  expect((await app.inject({
+    method: "POST", url: "/api/config/workflow-drafts/lan", headers: lan,
+    payload: { expected_revision: 0, envelope: { draft: true } },
+  })).statusCode).toBe(200);
+
+  await app.close();
+  db.close();
+});

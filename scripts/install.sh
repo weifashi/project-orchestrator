@@ -106,6 +106,10 @@ done
 [[ $(<"$data/runtime/adapter-codex-credential") != $(<"$data/runtime/adapter-claude-credential") ]] || die 'client credentials must differ'
 
 port=${PROJECT_ORCHESTRATOR_PORT:-3847}
+lan_access=${PROJECT_ORCHESTRATOR_LAN_ACCESS:-1}
+[[ $lan_access = 0 || $lan_access = 1 ]] || die 'PROJECT_ORCHESTRATOR_LAN_ACCESS must be 0 or 1'
+web_host=127.0.0.1
+[[ $lan_access = 1 ]] && web_host=0.0.0.0
 default_origin=${PROJECT_ORCHESTRATOR_ORIGIN:-http://127.0.0.1:$port}
 if [[ -n ${VSCODE_PROXY_URI:-} && $default_origin = http://127.0.0.1:$port ]]; then
   default_origin=${VSCODE_PROXY_URI//\{\{port\}\}/$port}
@@ -133,7 +137,8 @@ PROJECT_ORCHESTRATOR_OPERATION_SOCKET=$data/runtime/operations.sock
 PROJECT_ORCHESTRATOR_WEB_SESSION_SECRET_FILE=$data/runtime/web-session-secret
 PROJECT_ORCHESTRATOR_CODEX_CREDENTIAL_FILE=$data/runtime/adapter-codex-credential
 PROJECT_ORCHESTRATOR_CLAUDE_CREDENTIAL_FILE=$data/runtime/adapter-claude-credential
-PROJECT_ORCHESTRATOR_HOST=127.0.0.1
+PROJECT_ORCHESTRATOR_HOST=$web_host
+PROJECT_ORCHESTRATOR_LAN_ACCESS=$lan_access
 PROJECT_ORCHESTRATOR_PORT=$port
 PROJECT_ORCHESTRATOR_ORIGINS=$origins
 PROJECT_ORCHESTRATOR_ALLOWED_HOSTS=$allowed_hosts

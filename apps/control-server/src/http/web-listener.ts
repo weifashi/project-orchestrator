@@ -32,6 +32,17 @@ const clearSessionCookie = (secure: boolean) =>
   `po_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secure ? "; Secure" : ""}`;
 const cookieValue = (raw: string | undefined, name: string): string | undefined =>
   raw?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
+const hostName = (raw: string | undefined): string | undefined => {
+  if (!raw) return undefined;
+  if (raw.startsWith("[")) return raw.slice(1, raw.indexOf("]")).toLowerCase();
+  return raw.split(":", 1)[0]?.toLowerCase();
+};
+const trustedAddress = (raw: string): boolean => {
+  const ip = raw.replace(/^::ffff:/, "").toLowerCase();
+  if (ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80:")) return true;
+  const octets = ip.split(".").map(Number);
+  return octets.length === 4 && octets.every(Number.isInteger) && (octets[0] === 10 || octets[0] === 127 || (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31) || (octets[0] === 192 && octets[1] === 168));
+};
 const formValue = (body: unknown, key: string): string => new URLSearchParams(String(body ?? "")).get(key) ?? "";
 const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 const authError = (error: unknown): { status: number; message: string } => {
@@ -55,16 +66,19 @@ export function buildWebListener(input: WebListenerInput): WebListener {
   const allowedOrigins = new Set(input.allowedOrigins);
   if (allowedOrigins.size === 0) throw new Error("CONFIG_MISSING: web auth configuration");
   const allowedHosts = new Set(input.allowedHosts ?? ["127.0.0.1", "localhost"]);
+  const publicHosts = new Set([...allowedOrigins].map((origin) => new URL(origin).hostname.toLowerCase()));
   const secureCookies = [...allowedOrigins].some((origin) => origin.startsWith("https://"));
   const auth = createWebAuth(input.db, sessionSecret);
   const authenticated = (cookie: string | undefined) => auth.session(cookieValue(cookie, "po_session"));
+  const isPublicRequest = (request: { headers: { host?: string | undefined } }) => publicHosts.has(hostName(request.headers.host) ?? "");
+  const isTrustedLanRequest = (request: { headers: { host?: string | undefined }; ip: string }) => !isPublicRequest(request) && trustedAddress(request.ip);
   const publicPaths = new Set(["/health", "/bootstrap", "/bootstrap/register", "/bootstrap/login"]);
   app.decorate("closeEventStreams", () => closeEventStreams(eventStreams));
   app.addHook("onRequest", async (request, reply) => {
-    const host = request.headers.host?.split(":")[0];
-    if (!host || !allowedHosts.has(host)) return reply.code(403).send({ error: "invalid host" });
-    if (request.headers.origin !== undefined && !allowedOrigins.has(request.headers.origin)) return reply.code(403).send({ error: "invalid origin" });
-    if (publicPaths.has(request.url)) return;
+    const host = hostName(request.headers.host), lan = isTrustedLanRequest(request);
+    if (!host || (!allowedHosts.has(host) && !lan)) return reply.code(403).send({ error: "invalid host" });
+    if (request.headers.origin !== undefined && !allowedOrigins.has(request.headers.origin) && !lan) return reply.code(403).send({ error: "invalid origin" });
+    if (publicPaths.has(request.url) || lan) return;
     const session = authenticated(request.headers.cookie);
     if (!session) return reply.code(403).send({ error: "unauthorized" });
     if (request.url === "/logout") return;
@@ -91,7 +105,7 @@ export function buildWebListener(input: WebListenerInput): WebListener {
   app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 16 * 1024 }, (_request, body, done) => done(null, body));
   const page = (reply: FastifyReply, error?: { status: number; message: string }) => reply.code(error?.status ?? 200).header("Cache-Control", "no-store").type("text/html; charset=utf-8").send(bootstrapPage(randomBytes(16).toString("base64url"), !auth.hasUsers(), error ? escapeHtml(error.message) : undefined));
   app.get("/health", async (_request, reply) => reply.header("Cache-Control", "no-store").send({ ok: true }));
-  app.get("/bootstrap", async (_request, reply) => page(reply));
+  app.get("/bootstrap", async (request, reply) => isTrustedLanRequest(request) ? reply.redirect("/") : page(reply));
   app.post("/bootstrap/register", async (request, reply) => {
     if (formValue(request.body, "password") !== formValue(request.body, "confirm_password")) return page(reply, { status: 400, message: "两次输入的密码不一致。" });
     try { const login = await auth.registerFirstUser({ username: formValue(request.body, "username"), password: formValue(request.body, "password") }); return reply.header("Cache-Control", "no-store").header("Set-Cookie", sessionCookie(login.sessionToken, secureCookies)).redirect("/"); } catch (error) { return page(reply, authError(error)); }
@@ -100,7 +114,7 @@ export function buildWebListener(input: WebListenerInput): WebListener {
     try { const login = await auth.login({ username: formValue(request.body, "username"), password: formValue(request.body, "password") }, request.ip); return reply.header("Cache-Control", "no-store").header("Set-Cookie", sessionCookie(login.sessionToken, secureCookies)).redirect("/"); } catch (error) { return page(reply, authError(error)); }
   });
   app.post("/logout", async (request, reply) => { auth.logout(cookieValue(request.headers.cookie, "po_session")); return reply.header("Set-Cookie", clearSessionCookie(secureCookies)).redirect("/bootstrap"); });
-  app.get("/api/read/session", async (request, reply) => reply.header("Cache-Control", "no-store").send({ csrf_token: authenticated(request.headers.cookie)?.csrfToken }));
+  app.get("/api/read/session", async (request, reply) => reply.header("Cache-Control", "no-store").send({ csrf_token: isTrustedLanRequest(request) ? "lan-bypass" : authenticated(request.headers.cookie)?.csrfToken }));
   app.get("/api/stream/events", streamEvents(new EventRepository(input.db), input.ssePollIntervalMs, eventStreams));
   const root = resolve(input.staticDirectory ?? new URL("../../../web-console/dist", import.meta.url).pathname);
   if (existsSync(root)) {

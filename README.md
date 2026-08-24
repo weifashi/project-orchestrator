@@ -11,12 +11,12 @@ git clone https://github.com/weifashi/project-orchestrator.git
 cd project-orchestrator
 pnpm install --frozen-lockfile
 pnpm release
-bash release/project-orchestrator-0.1.17/install.sh --both
+bash release/project-orchestrator-0.1.18/install.sh --both
 ```
 
 The installer is idempotent. It creates private state under `~/.project-orchestrator`, immutable releases under `~/.local/share/project-orchestrator/releases`, command links under `~/.local/bin`, separate Codex/Claude adapter credentials, SQLite/CAS state, and the built-in workflow templates. It also registers both local plugin marketplaces.
 
-In Coder, `VSCODE_PROXY_URI` is used to print the external HTTPS URL. The server itself always listens only on `127.0.0.1:3847`; only the exact names in `PROJECT_ORCHESTRATOR_ALLOWED_HOSTS` pass Host validation. Forwarded Host headers are not trusted.
+In Coder, `VSCODE_PROXY_URI` is used to print the external HTTPS URL. Public hosts always require a local account. The installer binds `0.0.0.0:3847` for the private network by default; direct private-network and loopback access can edit and observe without a login, while the configured public hosts still require a session. Set `PROJECT_ORCHESTRATOR_LAN_ACCESS=0` when installing to keep loopback-only listening. Forwarded Host headers are not trusted.
 
 For this workspace the expected URL is:
 
