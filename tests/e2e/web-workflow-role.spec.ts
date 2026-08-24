@@ -35,7 +35,7 @@ test("workflow and role drafts publish only future immutable versions", async ({
   await page.getByLabel("显示名称").fill("Testing E2E");
   await page.getByRole("button", { name: "发布新版本" }).click();
   await expect(page.getByRole("status")).toContainText(
-    /有效能力：read-workspace|Effective capabilities: read-workspace/,
+    /已发布不可变新版本|Published a new immutable version/,
   );
   await expect(page.getByRole("heading", { name: "Testing E2E" })).toBeVisible();
 });
