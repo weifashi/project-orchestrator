@@ -1,4 +1,4 @@
-import type { WorkflowEdge, WorkflowStage, WorkflowVersionEnvelope } from "@project-orchestrator/contracts";
+import type { WorkflowCanvasGroup, WorkflowEdge, WorkflowStage, WorkflowVersionEnvelope } from "@project-orchestrator/contracts";
 
 export type CanvasPosition = { x: number; y: number };
 export type GraphDiagnostic = { code: "cycle" | "missing-edge" | "no-entry" | "unreachable" | "gate-bypass"; stageKeys: string[] };
@@ -34,6 +34,58 @@ export const updateCanvas = (envelope: WorkflowVersionEnvelope, positions: Recor
     canvas: { ...envelope.data.canvas, nodes: envelope.data.stages.map((stage) => ({ stage_key: stage.key, ...positions[stage.key]! })) },
   },
 });
+
+export const autoLayout = (envelope: WorkflowVersionEnvelope): WorkflowVersionEnvelope => {
+  const withoutPositions = { ...envelope, data: { ...envelope.data, canvas: { ...envelope.data.canvas, nodes: [] } } };
+  return updateCanvas(envelope, nodePositions(withoutPositions.data));
+};
+
+const canvas = (envelope: WorkflowVersionEnvelope) => ({ nodes: envelope.data.canvas?.nodes ?? [], groups: envelope.data.canvas?.groups ?? [] });
+const withCanvas = (envelope: WorkflowVersionEnvelope, patch: Partial<NonNullable<WorkflowVersionEnvelope["data"]["canvas"]>>): WorkflowVersionEnvelope => ({
+  ...envelope,
+  data: { ...envelope.data, canvas: { ...canvas(envelope), ...envelope.data.canvas, ...patch } },
+});
+
+export const updateCanvasViewport = (envelope: WorkflowVersionEnvelope, viewport: { x: number; y: number; zoom: number }) =>
+  withCanvas(envelope, { viewport_x: viewport.x, viewport_y: viewport.y, viewport_zoom: viewport.zoom });
+
+export const createCanvasGroup = (envelope: WorkflowVersionEnvelope, id: string, label: string, stageKeys: string[]) => {
+  const valid = [...new Set(stageKeys)].filter((key) => envelope.data.stages.some((stage) => stage.key === key));
+  if (!id.trim() || !label.trim() || !valid.length || canvas(envelope).groups.some((group) => group.id === id)) return envelope;
+  return withCanvas(envelope, { groups: [...canvas(envelope).groups, { id, label, stage_keys: valid, collapsed: false }] });
+};
+
+export const toggleCanvasGroup = (envelope: WorkflowVersionEnvelope, id: string) => {
+  const groups = canvas(envelope).groups;
+  if (!groups.some((group) => group.id === id)) return envelope;
+  return withCanvas(envelope, { groups: groups.map((group) => group.id === id ? { ...group, collapsed: !group.collapsed } : group) });
+};
+
+export const renameCanvasGroup = (envelope: WorkflowVersionEnvelope, id: string, label: string) => {
+  if (!label.trim() || !canvas(envelope).groups.some((group) => group.id === id)) return envelope;
+  return withCanvas(envelope, { groups: canvas(envelope).groups.map((group) => group.id === id ? { ...group, label: label.trim() } : group) });
+};
+
+export const removeGraphSelection = (envelope: WorkflowVersionEnvelope, stageKeys: string[], edgeIds: string[]) => {
+  const stages = new Set(stageKeys);
+  const protectedStage = envelope.data.stages.some((stage) => stages.has(stage.key) && stage.mandatory_gate);
+  const indexedEdges = envelope.data.edges.map((edge, index) => ({ edge, id: `${edge.from}-${edge.to}-${index}` }));
+  const protectedEdge = indexedEdges.some(({ edge, id }) => edgeIds.includes(id) && (envelope.data.stages.some((stage) => stage.mandatory_gate && (stage.key === edge.from || stage.key === edge.to))));
+  if (protectedStage || protectedEdge) return envelope;
+  const removableStages = envelope.data.stages.filter((stage) => !stages.has(stage.key));
+  if (!removableStages.length) return envelope;
+  const edges = indexedEdges
+    .filter(({ edge, id }) => !edgeIds.includes(id) && !stages.has(edge.from) && !stages.has(edge.to))
+    .map(({ edge }) => edge);
+  return withCanvas({ ...envelope, data: { ...envelope.data, stages: removableStages, edges } }, {
+    nodes: canvas(envelope).nodes.filter((node) => !stages.has(node.stage_key)),
+    groups: canvas(envelope).groups
+      .map((group) => ({ ...group, stage_keys: group.stage_keys.filter((key) => !stages.has(key)) }))
+      .filter((group) => group.stage_keys.length > 0),
+  });
+};
+
+export const groupForStage = (groups: WorkflowCanvasGroup[] | undefined, stageKey: string) => groups?.find((group) => group.stage_keys.includes(stageKey));
 
 const reachable = (roots: string[], edges: WorkflowEdge[], omitted?: string) => {
   const seen = new Set<string>(); const todo = [...roots];

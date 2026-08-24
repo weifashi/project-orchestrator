@@ -28,7 +28,8 @@ describe("workflow editor", () => {
         </MemoryRouter>
       </ApiContext.Provider>,
     );
-    expect(await screen.findByText("角色库")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "添加节点" })).toBeInTheDocument();
+    expect(screen.queryByText("选择一个角色")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /开始|暂停|重试|部署/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "保存草稿" }));
     expect(saveDraft).toHaveBeenCalledOnce();

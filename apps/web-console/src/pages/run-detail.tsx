@@ -9,6 +9,7 @@ import { ErrorPanel } from "../components/error-panel";
 import { useLoad } from "./use-load";
 import { useI18n } from "../i18n";
 import { WorkflowCanvas } from "../components/workflow-canvas";
+import { CanvasDrawer } from "../components/canvas-drawer";
 const tabs = ["overview", "timeline", "stages", "artifacts", "files", "tests", "memory", "diagnostics"] as const;
 const value = (row: Record<string, unknown>, key: string) =>
   String(row[key] ?? "—");
@@ -28,7 +29,9 @@ export function RunDetailPage() {
     api = useApi(),
     { data, error } = useLoad(() => api.runs.get(id), [api, id]);
   const [tab, setTab] = useState<(typeof tabs)[number]>("overview"),
-    [live, setLive] = useState<RunEvent[]>([]);
+    [live, setLive] = useState<RunEvent[]>([]),
+    [selectedStage, setSelectedStage] = useState<string>(),
+    [showWholeWorkflow, setShowWholeWorkflow] = useState(false);
   const workflow = useLoad(
     () => data ? api.workflows.getVersion(data.workflow_version_id) : Promise.resolve(undefined),
     [api, data?.workflow_version_id],
@@ -123,17 +126,25 @@ export function RunDetailPage() {
           </button>
         ))}
       </div>
+      {selectedStage && <CanvasDrawer title={t("nodeSettings")} onClose={() => setSelectedStage(undefined)} className="run-node-inspector">
+        <p className="muted">{t(selectedStage)}</p>
+        <p><strong>{t("status")}</strong> · {value(data.stages.find((stage) => value(stage, "stage_key") === selectedStage) ?? {}, "status")}</p>
+        <p><strong>{t("iteration")}</strong> · {value(data.stages.find((stage) => value(stage, "stage_key") === selectedStage) ?? {}, "iteration_number")}</p>
+        {data.status === "waiting_for_user" ? <p className="notice">{t("confirmInSession")}</p> : null}
+        {data.status === "failed" ? <p className="notice danger">{t("retryInSession")}</p> : null}
+      </CanvasDrawer>}
       <section role="tabpanel">
         {tab === "overview" && (
           <div className="grid">
-            <article className="span-12">
-              <h2>{t("runCanvas")}</h2>
-              <p className="muted">{t("runCanvasDescription")}</p>
+            <article className="span-12 run-canvas-card">
+              <div className="run-canvas-head"><div><span className="eyebrow">{t("readonlyEvidence")}</span><h2>{t("runCanvas")}</h2><p className="muted">{t("runCanvasDescription")}</p></div><button className="button ghost" type="button" onClick={() => setShowWholeWorkflow((current) => !current)}>{showWholeWorkflow ? t("runCanvas") : t("viewWholeWorkflow")}</button></div>
+              {!showWholeWorkflow && <div className="current-focus"><strong>{t("currentFocus")}</strong><span>{data.active_stages.length ? data.active_stages.map(t).join(" · ") : t("noActiveStage")}</span></div>}
               {workflow.data ? <WorkflowCanvas
                 readonly
                 envelope={workflow.data.envelope}
                 roles={[]}
                 label={t}
+                onSelect={setSelectedStage}
                 stageStates={Object.fromEntries(data.stages.map((stage) => [value(stage, "stage_key"), value(stage, "status")]))}
               /> : <p className="muted">{workflow.error ? t("workflowSnapshotUnavailable") : t("loading")}</p>}
             </article>

@@ -11,8 +11,9 @@ test("workflow and role drafts publish only future immutable versions", async ({
       .workflow_version_id;
   });
   await page.goto("/workflows/builtin-workflow-feature-development");
-  await expect(page.getByText("仅影响未来 Run")).toBeVisible();
-  await page.getByLabel("最大尝试次数").first().fill("2");
+  await expect(page.getByLabel("编排画布")).toBeVisible();
+  await page.getByText("开发实现").click();
+  await page.getByLabel("最大尝试次数").fill("2");
   await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page.getByRole("status")).toContainText("revision 1");
   await page.getByRole("button", { name: "发布新版本" }).click();

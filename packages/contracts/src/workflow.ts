@@ -78,11 +78,19 @@ export const WorkflowCanvasNodeSchema = Type.Object({
   y: Type.Number(),
 }, { additionalProperties: false });
 
+export const WorkflowCanvasGroupSchema = Type.Object({
+  id: Type.String({ minLength: 1 }),
+  label: Type.String({ minLength: 1 }),
+  stage_keys: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, uniqueItems: true }),
+  collapsed: Type.Boolean(),
+}, { additionalProperties: false });
+
 export const WorkflowCanvasSchema = Type.Object({
   nodes: Type.Array(WorkflowCanvasNodeSchema, { 'x-uniqueBy': 'stage_key' }),
   viewport_x: Type.Optional(Type.Number()),
   viewport_y: Type.Optional(Type.Number()),
   viewport_zoom: Type.Optional(Type.Number({ minimum: 0.1, maximum: 4 })),
+  groups: Type.Optional(Type.Array(WorkflowCanvasGroupSchema, { 'x-uniqueBy': 'id' })),
 }, { additionalProperties: false });
 
 export const WorkflowVersionDataSchema = Type.Object({
@@ -110,5 +118,6 @@ export type WorkflowStage = Static<typeof WorkflowStageSchema>;
 export type WorkflowEdge = Static<typeof WorkflowEdgeSchema>;
 export type WorkflowIterationGroup = Static<typeof WorkflowIterationGroupSchema>;
 export type WorkflowCanvasNode = Static<typeof WorkflowCanvasNodeSchema>;
+export type WorkflowCanvasGroup = Static<typeof WorkflowCanvasGroupSchema>;
 export type WorkflowCanvas = Static<typeof WorkflowCanvasSchema>;
 export type WorkflowVersionEnvelope = Static<typeof WorkflowVersionEnvelopeSchema>;

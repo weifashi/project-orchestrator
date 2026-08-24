@@ -51,3 +51,10 @@ Current Linux data paths:
 ```
 
 Backups, upgrade/rollback automation, uninstall/purge, and macOS LaunchAgents remain follow-up release work. Do not delete `~/.project-orchestrator` when replacing a release.
+
+## 画布编排与运行观察
+
+- 在「流程模板」进入画布优先编辑器：空白处拖动平移，滚轮缩放，右下角小地图定位；`F` 适应画布，`Ctrl/Cmd+S` 保存草稿，`Ctrl/Cmd+Z` 撤销，`Esc` 取消选择。
+- 点击「添加节点」可搜索本机角色，也可以把角色卡拖入画布；从节点端口拖线建立前后依赖。节点设置和角色市场均以浮层打开，不会压缩画布。
+- 节点分组和折叠仅改变展示，不改变阶段、边或运行规则。强制安全门和受保护依赖不能删除或绕过。
+- 「任务记录」复用同一画布导航，但只能查看冻结流程、状态和证据；网页没有开始、暂停、重试、确认或部署功能。
