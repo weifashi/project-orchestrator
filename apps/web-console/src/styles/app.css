@@ -17,6 +17,8 @@
 .skip-link:focus { transform: translateY(0); }
 .app-frame {
   display: grid;
+  width: 100vw;
+  max-width: 100vw;
   grid-template: 72px minmax(calc(100vh - 72px), auto) / 280px minmax(0, 1fr);
   min-height: 100vh;
   background:
@@ -613,7 +615,7 @@ main {
 }
 @media (max-width: 980px) {
   .app-frame {
-    grid-template: 64px auto 1fr/1fr;
+  grid-template: 64px auto 1fr/minmax(0, 1fr);
   }
   .topbar {
     height: 64px;
