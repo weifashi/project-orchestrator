@@ -1,6 +1,6 @@
 {
   "name": "project-orchestrator",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "packageManager": "pnpm@11.0.8",
   "engines": {
