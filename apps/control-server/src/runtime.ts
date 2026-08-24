@@ -132,7 +132,7 @@ export async function startControlServer(config: ControlConfig = loadConfig()): 
     submitConfirmation: dispatcher.submitConfirmation,
   });
   const web = buildWebListener({
-    db, content, webToken: config.webToken, csrfToken: config.csrfToken, allowedOrigin: config.allowedOrigin,
+    db, content, sessionSecret: config.webSessionSecret, allowedOrigins: config.allowedOrigins,
     ...(config.allowedHosts === undefined ? {} : { allowedHosts: config.allowedHosts }),
     ...(config.staticDirectory === undefined ? {} : { staticDirectory: config.staticDirectory }),
   });

@@ -13,16 +13,11 @@ afterEach(() =>
   ),
 );
 
-async function bootstrap(app: ReturnType<typeof buildWebListener>, token: string) {
+async function register(app: ReturnType<typeof buildWebListener>) {
   const response = await app.inject({
-    method: "POST",
-    url: "/bootstrap",
-    headers: {
-      host: "127.0.0.1",
-      origin: "http://127.0.0.1:3847",
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    payload: new URLSearchParams({ token }).toString(),
+    method: "POST", url: "/bootstrap/register",
+    headers: { host: "127.0.0.1", origin: "http://127.0.0.1:3847", "content-type": "application/x-www-form-urlencoded" },
+    payload: new URLSearchParams({ username: "owner", password: "twelve-char-password", confirm_password: "twelve-char-password" }).toString(),
   });
   expect(response.statusCode).toBe(302);
   return String(response.headers["set-cookie"]).split(";", 1)[0]!;
@@ -40,13 +35,12 @@ it("isolates Web config/read surface from all runtime control and enforces origi
   const app = buildWebListener({
     db,
     content: new ContentStore(join(dir, "objects"), db),
-    webToken: "web",
-    csrfToken: "csrf",
-    allowedOrigin: "http://127.0.0.1:3847",
+    sessionSecret: "csrf",
+    allowedOrigins: ["http://127.0.0.1:3847"],
   });
   const base = {
     host: "127.0.0.1",
-    cookie: await bootstrap(app, "web"),
+    cookie: await register(app),
     origin: "http://127.0.0.1:3847",
   };
   expect(
@@ -62,7 +56,7 @@ it("isolates Web config/read surface from all runtime control and enforces origi
   const save = await app.inject({
     method: "POST",
     url: "/api/config/workflow-drafts/a",
-    headers: { ...base, "x-csrf-token": "csrf" },
+    headers: { ...base, "x-csrf-token": (await app.inject({ method: "GET", url: "/api/read/session", headers: base })).json().csrf_token },
     payload: { expected_revision: 0, envelope: { draft: true } },
   });
   expect(save.statusCode).toBe(200);
@@ -84,7 +78,7 @@ it("isolates Web config/read surface from all runtime control and enforces origi
         await app.inject({
           method: "POST",
           url: route,
-          headers: { ...base, "x-csrf-token": "csrf" },
+          headers: { ...base, "x-csrf-token": (await app.inject({ method: "GET", url: "/api/read/session", headers: base })).json().csrf_token },
           payload: {},
         })
       ).statusCode,
@@ -111,28 +105,17 @@ it("isolates Web config/read surface from all runtime control and enforces origi
   db.close();
 });
 
-it("exchanges the Web token for an independent opaque session cookie", async () => {
+it("uses a stored account session instead of accepting a legacy bootstrap token", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cookie-int-"));
   dirs.push(dir);
   const db = openDatabase(join(dir, "db"));
   migrate(db);
-  const token = "web token+/=";
-  const app = buildWebListener({
-    db,
-    content: new ContentStore(join(dir, "objects"), db),
-    webToken: token,
-    csrfToken: "csrf",
-    allowedOrigin: "http://127.0.0.1:3847",
-  });
-  const cookie = await bootstrap(app, token);
-  expect(cookie).not.toContain(Buffer.from(token).toString("base64url"));
-  const response = await app.inject({
-    method: "GET",
-    url: "/api/read/system/status",
-    headers: { host: "127.0.0.1", cookie },
-  });
-  expect(response.statusCode).toBe(200);
-  expect(response.headers["set-cookie"]).toContain(`${cookie};`);
-  await app.close();
-  db.close();
+  const app = buildWebListener({ db, content: new ContentStore(join(dir, "objects"), db), sessionSecret: "csrf", allowedOrigins: ["http://127.0.0.1:3847"] });
+  expect((await app.inject({ method: "GET", url: "/bootstrap", headers: { host: "127.0.0.1" } })).body).toContain("创建管理员账号");
+  const cookie = await register(app);
+  const login = await app.inject({ method: "GET", url: "/bootstrap", headers: { host: "127.0.0.1" } });
+  expect(login.body).toContain("欢迎回来");
+  expect((await app.inject({ method: "POST", url: "/bootstrap", headers: { host: "127.0.0.1", "content-type": "application/x-www-form-urlencoded" }, payload: "token=legacy" })).statusCode).toBe(405);
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "127.0.0.1", cookie } })).statusCode).toBe(200);
+  await app.close(); db.close();
 });

@@ -47,15 +47,11 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-async function bootstrapCookie(baseUrl: string, origin: string, token: string) {
-  const response = await fetch(`${baseUrl}/bootstrap`, {
-    method: 'POST',
-    redirect: 'manual',
-    headers: {
-      origin,
-      'content-type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({ token }),
+async function bootstrapCookie(baseUrl: string, origin: string) {
+  const response = await fetch(`${baseUrl}/bootstrap/register`, {
+    method: 'POST', redirect: 'manual',
+    headers: { origin, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username: 'owner', password: 'twelve-char-password', confirm_password: 'twelve-char-password' }),
   });
   expect(response.status).toBe(302);
   return String(response.headers.get('set-cookie')).split(';', 1)[0]!;
@@ -138,8 +134,8 @@ it('rejects a foreign SQLite application id before writing migrations', async ()
   await expect(startControlServer({
     dataDirectory: directory, databasePath, objectsPath: join(directory, 'objects'),
     controlSocketPath: join(directory, 'control.sock'), operationSocketPath: join(directory, 'operation.sock'),
-    webHost: '127.0.0.1', webPort: 0, webToken: 'web', csrfToken: 'csrf', adapterCredential: 'adapter',
-    allowedOrigin: 'http://127.0.0.1', maxFrameBytes: 256 * 1024,
+    webHost: '127.0.0.1', webPort: 0, webSessionSecret: 'csrf', adapterCredential: 'adapter',
+    allowedOrigins: ['http://127.0.0.1'], maxFrameBytes: 256 * 1024,
   })).rejects.toThrow('DATABASE_APPLICATION_ID_MISMATCH');
   const reopened = openDatabase(databasePath);
   expect(reopened.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all())
@@ -169,7 +165,7 @@ it('keeps SSE open, resumes after Last-Event-ID, and streams newly appended even
   if(address===null||typeof address==='string')throw new Error('listener unavailable');
   const abort=new AbortController();
   const baseUrl=`http://127.0.0.1:${address.port}`;
-  const cookie=await bootstrapCookie(baseUrl,'http://127.0.0.1','web');
+  const cookie=await bootstrapCookie(baseUrl,'http://127.0.0.1');
   const response=await fetch(`${baseUrl}/api/stream/events?run_id=run`,{headers:{cookie,'last-event-id':'1',origin:'http://127.0.0.1'},signal:abort.signal});
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toContain('text/event-stream');

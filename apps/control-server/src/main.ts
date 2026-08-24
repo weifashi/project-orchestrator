@@ -6,7 +6,7 @@ import {
   IpcClient,
   loadAdapterCredential,
 } from '@project-orchestrator/adapter-core';
-import { loadConfig, rotateWebCredentials } from "./config.js";
+import { loadConfig, rotateWebSessionSecret } from "./config.js";
 import { initializeLocalState, inspectLocalState } from './distribution.js';
 import { startControlServer } from "./runtime.js";
 
@@ -80,11 +80,9 @@ async function startRunFromCli(): Promise<void> {
   }
 }
 
-if (command === "--rotate-web-credentials") {
-  rotateWebCredentials();
-  process.stdout.write(
-    "Web credentials rotated. Restart the Control Server and bootstrap a new browser session.\n",
-  );
+if (command === "--rotate-web-session-secret") {
+  rotateWebSessionSecret();
+  process.stdout.write("Web session secret rotated. Restart the Control Server; every browser session will sign in again.\n");
 } else if (command === 'initialize') {
   initializeLocalState(stateInput);
   process.stdout.write('Local database, built-in workflows, and client installations initialized.\n');
@@ -92,7 +90,7 @@ if (command === "--rotate-web-credentials") {
   const versionFile = process.env['PROJECT_ORCHESTRATOR_VERSION_FILE'];
   process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.5'}\n`);
 } else if (command === 'url') {
-  process.stdout.write(`${loadConfig().allowedOrigin}\n`);
+  process.stdout.write(`${loadConfig().allowedOrigins[0]}\n`);
 } else if (command === 'doctor') {
   const state = inspectLocalState(stateInput);
   let service = false;
