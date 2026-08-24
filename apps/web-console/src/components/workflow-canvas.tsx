@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Background, Controls, Handle, Position, ReactFlow,
+  Background, Controls, Handle, Position, ReactFlow, useNodesState,
   type Connection, type Edge, type Node, type NodeChange, type OnMoveEnd, type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -22,7 +22,7 @@ type Props = {
   onSelect?: (key?: string) => void;
 };
 
-function StageNode({ data }: { data: NodeData }) {
+const StageNode = memo(function StageNode({ data }: { data: NodeData }) {
   const { stage, label, meta, quickAddLabel, selected, state, onQuickAdd } = data;
   return <div className={`workflow-node ${stage.mandatory_gate ? "is-gate" : ""} ${selected ? "is-selected" : ""} ${state ? `is-${state}` : ""}`}>
     <Handle type="target" position={Position.Left} />
@@ -31,10 +31,10 @@ function StageNode({ data }: { data: NodeData }) {
     {onQuickAdd && <button className="node-quick-add nodrag" type="button" title={quickAddLabel} aria-label={quickAddLabel} onClick={(event) => { event.stopPropagation(); onQuickAdd(stage.key); }}>＋</button>}
     <Handle type="source" position={Position.Right} />
   </div>;
-}
-function GroupNode({ data }: { data: GroupData }) {
+});
+const GroupNode = memo(function GroupNode({ data }: { data: GroupData }) {
   return <button className="workflow-group-node nodrag" type="button" onClick={data.onExpand} aria-label={data.expandLabel}><strong>{data.label}</strong><span>{data.summary}</span></button>;
-}
+});
 const nodeTypes = { stage: StageNode, group: GroupNode };
 const defaultStage = (key: string, roleVersionId: string): WorkflowStage => ({ key, role_version_id: roleVersionId, optional: false, mandatory_gate: false, failure_policy: "pause", max_attempts: 1, requires_confirmation: false });
 const uniqueKey = (base: string, stages: WorkflowStage[]) => { let count = 1, key = base; const all = new Set(stages.map((stage) => stage.key)); while (all.has(key)) key = `${base}-${++count}`; return key; };
@@ -53,7 +53,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const collapsed = useMemo(() => envelope.data.canvas?.groups?.filter((group) => group.collapsed) ?? [], [envelope.data.canvas?.groups]);
   const groupFor = useCallback((key: string) => collapsed.find((group) => group.stage_keys.includes(key)), [collapsed]);
   const endpoint = useCallback((key: string) => groupFor(key)?.id ?? key, [groupFor]);
-  const nodes = useMemo<Node[]>(() => {
+  const authoredNodes = useMemo<Node[]>(() => {
     const stages = envelope.data.stages.filter((stage) => !groupFor(stage.key)).map((stage) => ({
       id: stage.key, type: "stage", position: positions[stage.key]!, data: { stage, label: label(stage.key), selected: selected === stage.key, state: stageStates[stage.key] ?? "queued", meta: stage.mandatory_gate ? t("mandatoryGate") : stage.optional ? t("optionalStage") : t("stage"), quickAddLabel: t("addNode"), ...(!readonly ? { onQuickAdd: (key: string) => { setSelected(key); setPaletteOpen(true); } } : {}) },
     }));
@@ -64,6 +64,8 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
     });
     return [...stages, ...summaries];
   }, [collapsed, envelope, groupFor, label, onChange, positions, readonly, selected, stageStates, t]);
+  const [nodes, setNodes, applyNodeChanges] = useNodesState<Node>([]);
+  useEffect(() => { setNodes(authoredNodes); }, [authoredNodes, setNodes]);
   const edges = useMemo<Edge[]>(() => {
     const unique = new Set<string>();
     return envelope.data.edges.flatMap((edge, index) => {
@@ -76,7 +78,9 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   }, [endpoint, envelope.data.edges, stageStates, t]);
   const select = useCallback((key?: string) => { setSelected(key); onSelect?.(key); }, [onSelect]);
   const writePositions = (changes: NodeChange<Node>[]) => {
-    if (readonly || !onChange) return;
+    if (readonly) return;
+    applyNodeChanges(changes);
+    if (!onChange) return;
     const tracked = trackCanvasNodePositions(livePositionsRef.current, changes, envelope.data.stages.map((stage) => stage.key));
     if (!tracked) return;
     livePositionsRef.current = tracked.positions;

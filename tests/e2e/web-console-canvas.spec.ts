@@ -27,8 +27,15 @@ test("dragging a workflow node follows the pointer and retains its released posi
   if (!before) throw new Error("workflow node is not measurable");
   await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
   await page.mouse.down();
-  await page.mouse.move(before.x + before.width / 2 + 120, before.y + before.height / 2 + 36, { steps: 8 });
-  await expect.poll(async () => (await node.boundingBox())?.x ?? 0).toBeGreaterThan(before.x + 35);
+  const samples: number[] = [];
+  for (const distance of [30, 60, 90, 120]) {
+    await page.mouse.move(before.x + before.width / 2 + distance, before.y + before.height / 2 + 36);
+    await page.waitForTimeout(20);
+    samples.push((await node.boundingBox())?.x ?? 0);
+  }
+  expect(samples[3]).toBeGreaterThan(samples[0] + 25);
+  expect(samples[2]).toBeGreaterThan(samples[1]);
+  expect(samples[1]).toBeGreaterThan(samples[0]);
   await page.mouse.up();
   await expect.poll(async () => (await node.boundingBox())?.x ?? 0).toBeGreaterThan(before.x + 35);
 });
