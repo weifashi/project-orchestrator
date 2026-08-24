@@ -27,7 +27,9 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   expect(registration.statusCode).toBe(200);
   expect(registration.body).toContain("创建管理员账号");
   expect(registration.body).not.toContain("Web token");
-  expect(registration.headers["content-security-policy"]).toMatch(/style-src 'self' 'nonce-[A-Za-z0-9_-]+'/);
+  const cspNonce = String(registration.headers["content-security-policy"]).match(/style-src 'self' 'nonce-([A-Za-z0-9_-]+)'/)?.[1];
+  const styleNonce = registration.body.match(/<style nonce="([A-Za-z0-9_-]+)">/)?.[1];
+  expect(cspNonce).toBe(styleNonce);
   expect((await app.inject({ method: "GET", url: "/bootstrap", headers: { host: "orchestrator.co.weifashi.example", origin: publicOrigin } })).statusCode).toBe(200);
   expect((await app.inject({ method: "GET", url: "/bootstrap", headers: { host, origin: "https://evil.example" } })).statusCode).toBe(403);
   const created = await app.inject({

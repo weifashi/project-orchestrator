@@ -97,13 +97,17 @@ export function buildWebListener(input: WebListenerInput): WebListener {
   });
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/api/")) reply.header("Cache-Control", "no-store");
-    reply.header("Content-Security-Policy", buildCsp(randomBytes(16).toString("base64url"))).header("X-Content-Type-Options", "nosniff").header("Referrer-Policy", request.url.startsWith("/bootstrap") ? "same-origin" : "no-referrer").header("X-Frame-Options", "DENY");
+    if (!reply.hasHeader("Content-Security-Policy")) reply.header("Content-Security-Policy", buildCsp(randomBytes(16).toString("base64url")));
+    reply.header("X-Content-Type-Options", "nosniff").header("Referrer-Policy", request.url.startsWith("/bootstrap") ? "same-origin" : "no-referrer").header("X-Frame-Options", "DENY");
     return payload;
   });
   const handlers = input.handlers ?? createConfigHandlers(new ConfigService(new SqliteConfigRepository(input.db), input.content), input.db);
   registerConfigRoutes(app, handlers); registerReadRoutes(app, input.db, input.content);
   app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 16 * 1024 }, (_request, body, done) => done(null, body));
-  const page = (reply: FastifyReply, error?: { status: number; message: string }) => reply.code(error?.status ?? 200).header("Cache-Control", "no-store").type("text/html; charset=utf-8").send(bootstrapPage(randomBytes(16).toString("base64url"), !auth.hasUsers(), error ? escapeHtml(error.message) : undefined));
+  const page = (reply: FastifyReply, error?: { status: number; message: string }) => {
+    const styleNonce = randomBytes(16).toString("base64url");
+    return reply.code(error?.status ?? 200).header("Cache-Control", "no-store").header("Content-Security-Policy", buildCsp(styleNonce)).type("text/html; charset=utf-8").send(bootstrapPage(styleNonce, !auth.hasUsers(), error ? escapeHtml(error.message) : undefined));
+  };
   app.get("/health", async (_request, reply) => reply.header("Cache-Control", "no-store").send({ ok: true }));
   app.get("/bootstrap", async (request, reply) => isTrustedLanRequest(request) ? reply.redirect("/") : page(reply));
   app.post("/bootstrap/register", async (request, reply) => {
