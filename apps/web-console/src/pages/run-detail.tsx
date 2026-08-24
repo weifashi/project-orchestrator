@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useApi } from "../api/context";
 import { subscribeToRunEvents } from "../api/events";
@@ -30,8 +30,7 @@ export function RunDetailPage() {
     { data, error } = useLoad(() => api.runs.get(id), [api, id]);
   const [tab, setTab] = useState<(typeof tabs)[number]>("overview"),
     [live, setLive] = useState<RunEvent[]>([]),
-    [selectedStage, setSelectedStage] = useState<string>(),
-    [showWholeWorkflow, setShowWholeWorkflow] = useState(false);
+    [selectedStage, setSelectedStage] = useState<string>();
   const workflow = useLoad(
     () => data ? api.workflows.getVersion(data.workflow_version_id) : Promise.resolve(undefined),
     [api, data?.workflow_version_id],
@@ -137,8 +136,7 @@ export function RunDetailPage() {
         {tab === "overview" && (
           <div className="grid">
             <article className="span-12 run-canvas-card">
-              <div className="run-canvas-head"><div><span className="eyebrow">{t("readonlyEvidence")}</span><h2>{t("runCanvas")}</h2><p className="muted">{t("runCanvasDescription")}</p></div><button className="button ghost" type="button" onClick={() => setShowWholeWorkflow((current) => !current)}>{showWholeWorkflow ? t("runCanvas") : t("viewWholeWorkflow")}</button></div>
-              {!showWholeWorkflow && <div className="current-focus"><strong>{t("currentFocus")}</strong><span>{data.active_stages.length ? data.active_stages.map(t).join(" · ") : t("noActiveStage")}</span></div>}
+              <div className="run-canvas-head"><div><span className="eyebrow">{t("readonlyEvidence")}</span><h2>{t("runCanvas")}</h2><p className="muted">{t("runCanvasDescription")}</p></div></div>
               {workflow.data ? <WorkflowCanvas
                 readonly
                 envelope={workflow.data.envelope}
@@ -148,48 +146,6 @@ export function RunDetailPage() {
                 stageStates={Object.fromEntries(data.stages.map((stage) => [value(stage, "stage_key"), value(stage, "status")]))}
               /> : <p className="muted">{workflow.error ? t("workflowSnapshotUnavailable") : t("loading")}</p>}
             </article>
-            <article className="card span-7">
-              <h2>{t("activeStages")}</h2>
-              <div className="stage-pills">
-                {data.active_stages.length ? (
-                  data.active_stages.map((stage) => (
-                    <Badge key={stage}>{stage}</Badge>
-                  ))
-                ) : (
-                  <span className="muted">{t("noActiveStage")}</span>
-                )}
-              </div>
-              <h2 className="mt-24">{t("stageStatus")}</h2>
-              {data.stages.length ? (
-                <div className="stage-list">
-                  {data.stages.map((stage) => (
-                    <div className="system-row" key={value(stage, "id")}>
-                      <span>
-                        <strong>{value(stage, "stage_key")}</strong>
-                        <small className="block">
-                          {t("iteration")} {value(stage, "iteration_number")} · {t("roles")}{" "}
-                          {value(stage, "role_version_id")}
-                        </small>
-                      </span>
-                      <Badge>{value(stage, "status")}</Badge>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState />
-              )}
-            </article>
-            <aside className="card span-5">
-              <h2>{t("frozenSnapshot")}</h2>
-              <dl className="kv">
-                {Object.entries(data.snapshot ?? {}).map(([key, v]) => (
-                  <Fragment key={key}>
-                    <dt>{key}</dt>
-                    <dd>{String(v)}</dd>
-                  </Fragment>
-                ))}
-              </dl>
-            </aside>
           </div>
         )}
         {tab === "timeline" && (

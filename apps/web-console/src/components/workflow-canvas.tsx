@@ -10,7 +10,7 @@ import { CanvasDrawer } from "./canvas-drawer";
 import { autoLayout, type CanvasPosition, insertStageAfter, nodePositions, removeGraphSelection, toggleCanvasGroup, trackCanvasNodePositions, updateCanvas, updateCanvasViewport, validateGraph } from "./workflow-graph";
 import { useI18n } from "../i18n";
 
-type NodeData = { stage: WorkflowStage; label: string; meta: string; quickAddLabel: string; selected?: boolean; state?: string; onQuickAdd?: (key: string) => void };
+type NodeData = { stage: WorkflowStage; label: string; meta: string; quickAddLabel: string; selected?: boolean; state?: string; stateLabel?: string; onQuickAdd?: (key: string) => void };
 type GroupData = { label: string; count: number; summary: string; expandLabel: string; onExpand?: () => void };
 type Props = {
   envelope: WorkflowVersionEnvelope;
@@ -23,7 +23,7 @@ type Props = {
 };
 
 const StageNode = memo(function StageNode({ data }: { data: NodeData }) {
-  const { stage, label, meta, quickAddLabel, selected, state, onQuickAdd } = data;
+  const { stage, label, meta, quickAddLabel, selected, state, stateLabel, onQuickAdd } = data;
   const openQuickAdd = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
     onQuickAdd?.(stage.key);
@@ -31,7 +31,7 @@ const StageNode = memo(function StageNode({ data }: { data: NodeData }) {
   return <div className={`workflow-node ${stage.mandatory_gate ? "is-gate" : ""} ${selected ? "is-selected" : ""} ${state ? `is-${state}` : ""}`}>
     <Handle type="target" position={Position.Left} className="node-input-handle" />
     <div className="workflow-node-title"><span className="workflow-node-avatar" aria-hidden>{label.slice(0, 1).toUpperCase()}</span><span>{label}</span>{stage.mandatory_gate && <small aria-label={meta}>●</small>}</div>
-    <div className="workflow-node-meta">{state ?? meta}</div>
+    <div className="workflow-node-meta">{stateLabel ?? meta}</div>
     <Handle type="source" position={Position.Right} className="node-output-handle" title={quickAddLabel} aria-label={quickAddLabel} role={onQuickAdd ? "button" : undefined} tabIndex={onQuickAdd ? 0 : undefined} onClick={onQuickAdd ? openQuickAdd : undefined} onKeyDown={onQuickAdd ? (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openQuickAdd(event); } } : undefined} />
   </div>;
 });
@@ -61,7 +61,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const endpoint = useCallback((key: string) => groupFor(key)?.id ?? key, [groupFor]);
   const authoredNodes = useMemo<Node[]>(() => {
     const stages = envelope.data.stages.filter((stage) => !groupFor(stage.key)).map((stage) => ({
-      id: stage.key, type: "stage", position: positions[stage.key]!, data: { stage, label: label(stage.key), selected: selected === stage.key, state: stageStates[stage.key] ?? "queued", meta: stage.mandatory_gate ? t("mandatoryGate") : stage.optional ? t("optionalStage") : t("stage"), quickAddLabel: t("addNode"), ...(!readonly ? { onQuickAdd: (key: string) => { setSelected(key); setPaletteOpen(true); } } : {}) },
+      id: stage.key, type: "stage", position: positions[stage.key]!, data: { stage, label: label(stage.key), selected: selected === stage.key, state: stageStates[stage.key] ?? "queued", stateLabel: t(stageStates[stage.key] ?? "queued"), meta: stage.mandatory_gate ? t("mandatoryGate") : stage.optional ? t("optionalStage") : t("stage"), quickAddLabel: t("addNode"), ...(!readonly ? { onQuickAdd: (key: string) => { setSelected(key); setPaletteOpen(true); } } : {}) },
     }));
     const summaries = collapsed.map((group) => {
       const memberPositions = group.stage_keys.map((key) => positions[key]).filter((value): value is CanvasPosition => value !== undefined);
