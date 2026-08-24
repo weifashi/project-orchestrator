@@ -11,7 +11,7 @@ git clone https://github.com/weifashi/project-orchestrator.git
 cd project-orchestrator
 pnpm install --frozen-lockfile
 pnpm release
-bash release/project-orchestrator-0.1.33/install.sh --both
+bash release/project-orchestrator-0.1.34/install.sh --both
 ```
 
 The installer is idempotent. It creates private state under `~/.project-orchestrator`, immutable releases under `~/.local/share/project-orchestrator/releases`, command links under `~/.local/bin`, separate Codex/Claude adapter credentials, SQLite/CAS state, and the built-in workflow templates. It also registers both local plugin marketplaces.

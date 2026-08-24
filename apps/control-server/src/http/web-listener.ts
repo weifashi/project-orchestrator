@@ -80,9 +80,12 @@ export function buildWebListener(input: WebListenerInput): WebListener {
     if (request.headers.origin !== undefined && !allowedOrigins.has(request.headers.origin) && !lan) return reply.code(403).send({ error: "invalid origin" });
     if (publicPaths.has(request.url) || lan) return;
     const session = authenticated(request.headers.cookie);
-    if (!session) return reply.code(403).send({ error: "unauthorized" });
-    if (request.url === "/logout") return;
     const apiRequest = request.url.startsWith("/api/");
+    if (!session) {
+      if (!apiRequest && (request.method === "GET" || request.method === "HEAD")) return reply.redirect("/bootstrap");
+      return reply.code(403).send({ error: "unauthorized" });
+    }
+    if (request.url === "/logout") return;
     if (!apiRequest) {
       if (request.method !== "GET" && request.method !== "HEAD") return reply.code(405).send({ error: "method not allowed" });
       return;

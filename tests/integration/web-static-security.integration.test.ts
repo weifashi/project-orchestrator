@@ -45,6 +45,10 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   expect(String(created.headers["set-cookie"])).toContain("HttpOnly; SameSite=Strict; Path=/; Secure");
   expect(cookie).not.toContain("twelve-char-password");
   expect((await app.inject({ method: "GET", url: "/bootstrap", headers: { host } })).body).toContain("欢迎回来");
+  const unauthenticatedPage = await app.inject({ method: "GET", url: "/workflows", headers: { host } });
+  expect(unauthenticatedPage.statusCode).toBe(302);
+  expect(unauthenticatedPage.headers.location).toBe("/bootstrap");
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host } })).json()).toEqual({ error: "unauthorized" });
   const page = await app.inject({ method: "GET", url: "/runs/example", headers: { host, cookie } });
   expect(page.statusCode).toBe(200);
   expect(page.body).toContain('__PO_CSRF_TOKEN__');
