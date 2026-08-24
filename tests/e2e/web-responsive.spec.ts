@@ -47,3 +47,14 @@ test("workflow canvas owns the desktop viewport instead of creating a document s
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(900);
   await page.close();
 });
+
+test("long role directories scroll inside the application shell", async ({ browser }) => {
+  const page = await browser.newPage({ viewport: { width: 1568, height: 900 } });
+  await mockApi(page);
+  await page.goto("/roles");
+  await page.waitForLoadState("networkidle");
+  const size = await page.evaluate(() => ({ document: document.documentElement.scrollHeight, viewport: document.documentElement.clientHeight, main: document.querySelector("main")?.scrollHeight ?? 0, mainViewport: document.querySelector("main")?.clientHeight ?? 0 }));
+  expect(size.document).toBeLessThanOrEqual(size.viewport);
+  expect(size.main).toBeGreaterThanOrEqual(size.mainViewport);
+  await page.close();
+});
