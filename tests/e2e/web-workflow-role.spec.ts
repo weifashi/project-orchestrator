@@ -37,5 +37,5 @@ test("workflow and role drafts publish only future immutable versions", async ({
   await expect(page.getByRole("status")).toContainText(
     /已发布不可变新版本|Published a new immutable version/,
   );
-  await expect(page.getByRole("heading", { name: "Testing E2E" })).toBeVisible();
+  await expect(page.getByLabel("显示名称")).toHaveValue("Testing E2E");
 });
