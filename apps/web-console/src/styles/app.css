@@ -806,3 +806,10 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 @media (min-width: 981px) { .app-frame:has(.canvas-page) { height: 100dvh; min-height: 0; overflow: hidden; grid-template-rows: 58px minmax(0, 1fr); }.app-frame:has(.canvas-page) main { min-height: 0; overflow: hidden; padding-block: 18px; }.canvas-page { height: 100%; min-height: 0; }.canvas-workspace,.canvas-page .canvas-stage { min-height: 0; height: 100%; } }
 @media (max-width: 980px) { .app-frame { grid-template: 58px auto 1fr/minmax(0,1fr); }.topbar { padding: 0 14px; }.sidebar { top: 58px; }.role-market { left: 16px; }.react-flow__controls { right: 184px !important; } }
 @media (max-width: 560px) { .canvas-floating-actions { top: 10px; left: 10px; }.react-flow__controls { right: 14px !important; bottom: 176px !important; }.react-flow__minimap { right: 14px !important; bottom: 14px !important; transform: scale(.78); transform-origin: bottom right; }.canvas-empty-state { padding: 24px; }.sidebar { top: 58px; } }
+/* Keep workflow-wide actions available while a node inspector is open. */
+@media (min-width: 981px) {
+  .canvas-drawer { top: 132px; max-height: calc(100dvh - 150px); }
+}
+/* The minimap is intentionally removed: it consumed space without helping this compact editor. */
+.react-flow__minimap { display: none !important; }
+.react-flow__controls { right: 20px !important; }
