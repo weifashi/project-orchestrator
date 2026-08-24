@@ -16,7 +16,7 @@ it("creates exactly one first administrator and stores no plaintext authenticati
   const auth = createWebAuth(db, "test csrf key");
   const created = await auth.registerFirstUser({
     username: "owner",
-    password: "twelve-char-password",
+    password: "short",
   });
 
   expect(created.sessionToken).toHaveLength(43);
@@ -25,7 +25,7 @@ it("creates exactly one first administrator and stores no plaintext authenticati
     .rejects.toThrow("REGISTRATION_CLOSED");
   expect(db.prepare("SELECT username,password_hash FROM web_users").get()).toEqual({
     username: "owner",
-    password_hash: expect.not.stringContaining("twelve-char-password"),
+    password_hash: expect.not.stringContaining("short"),
   });
   expect(db.prepare("SELECT token_hash,csrf_hash FROM web_sessions").get()).not.toMatchObject({
     token_hash: created.sessionToken,

@@ -17,7 +17,7 @@ const now = (): string => new Date().toISOString();
 const digest = (value: string): string => createHash("sha256").update(value).digest("hex");
 const randomToken = (): string => randomBytes(tokenBytes).toString("base64url");
 const validUsername = (username: string): boolean => /^[A-Za-z0-9_-]{3,32}$/.test(username);
-const validPassword = (password: string): boolean => password.length >= 12;
+const validPassword = (password: string): boolean => password.length > 0;
 const mismatch = (left: Buffer, right: Buffer): boolean => left.length !== right.length || !timingSafeEqual(left, right);
 const scrypt = (password: string, salt: Buffer, length: number): Promise<Buffer> => new Promise((resolve, reject) => {
   scryptCallback(password, salt, length, scryptParameters, (error, output) => error ? reject(error) : resolve(output));
