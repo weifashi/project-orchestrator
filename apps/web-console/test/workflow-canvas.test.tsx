@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkflowVersionEnvelope } from "@project-orchestrator/contracts";
 import { WorkflowCanvas } from "../src/components/workflow-canvas";
@@ -29,6 +29,14 @@ describe("workflow canvas", () => {
     render(<WorkflowCanvas envelope={emptyWorkflow} roles={[]} label={(key) => key} onChange={() => undefined} />);
     expect(screen.getByTestId("canvas-empty-state")).toBeVisible();
     expect(screen.getByRole("button", { name: "添加节点" })).toBeVisible();
+  });
+
+  it("explains when a read-only Run has no frozen stages", () => {
+    const view = render(<WorkflowCanvas envelope={emptyWorkflow} roles={[]} label={(key) => key} readonly />);
+    const canvas = within(view.container);
+    expect(canvas.getByTestId("canvas-empty-state")).toBeVisible();
+    expect(canvas.getByText("本次任务没有可显示的流程节点")).toBeVisible();
+    expect(canvas.queryByRole("button", { name: "添加节点" })).not.toBeInTheDocument();
   });
 
   it("uses an in-app context menu to delete a node instead of the browser menu", async () => {

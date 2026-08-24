@@ -76,7 +76,7 @@ it('serves health through the configured Coder host while the app remains loopba
   });
   expect(health.statusCode).toBe(200);
   expect(health.json()).toEqual({ ok: true });
-  const rejected = await app.inject({ method: 'GET', url: '/health', headers: { host: 'evil.example' } });
+  const rejected = await app.inject({ method: 'GET', url: '/health', headers: { host: 'evil.example' }, remoteAddress: '203.0.113.42' });
   expect(rejected.statusCode).toBe(403);
   await app.close();
   db.close();
