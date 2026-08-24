@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowVersionEnvelope } from "@project-orchestrator/contracts";
-import { createCanvasGroup, insertStageAfter, removeGraphSelection, toggleCanvasGroup, validateGraph } from "../src/components/workflow-graph";
+import { createCanvasGroup, insertStageAfter, removeGraphSelection, toggleCanvasGroup, trackCanvasNodePositions, validateGraph } from "../src/components/workflow-graph";
 const stage = (key: string, gate = false) => ({ key, role_version_id: `role-${key}`, optional: false, mandatory_gate: gate, failure_policy: "pause" as const, max_attempts: 1, requires_confirmation: false });
 const workflow = (): WorkflowVersionEnvelope => ({ schema_id: "project-orchestrator/workflow-version", schema_version: 1, data: { slug: "demo", version: 1, stages: [stage("requirements"), stage("testing", true), stage("operations")], edges: [{ from: "requirements", to: "testing", edge_type: "requires" }, { from: "testing", to: "operations", edge_type: "requires" }], iteration_groups: [] } });
 describe("workflow canvas graph", () => {
@@ -16,5 +16,15 @@ describe("workflow canvas graph", () => {
     const input = workflow();
     expect(removeGraphSelection(input, ["testing"], [])).toBe(input);
     expect(removeGraphSelection(input, [], ["testing-operations-1"])).toBe(input);
+  });
+  it("keeps drag positions inside the canvas until the pointer is released", () => {
+    const moving = trackCanvasNodePositions({}, [
+      { id: "requirements", type: "position", position: { x: 320, y: 48 }, dragging: true },
+    ], ["requirements", "testing", "operations"]);
+    expect(moving).toEqual({ positions: { requirements: { x: 320, y: 48 } }, commit: false });
+    const released = trackCanvasNodePositions(moving!.positions, [
+      { id: "requirements", type: "position", position: { x: 360, y: 66 }, dragging: false },
+    ], ["requirements", "testing", "operations"]);
+    expect(released).toEqual({ positions: { requirements: { x: 360, y: 66 } }, commit: true });
   });
 });

@@ -2,6 +2,19 @@ import type { WorkflowCanvasGroup, WorkflowEdge, WorkflowStage, WorkflowVersionE
 
 export type CanvasPosition = { x: number; y: number };
 export type GraphDiagnostic = { code: "cycle" | "missing-edge" | "no-entry" | "unreachable" | "gate-bypass"; stageKeys: string[] };
+type CanvasNodePositionChange = { id?: string; type: string; position?: CanvasPosition; dragging?: boolean };
+
+export const trackCanvasNodePositions = (current: Record<string, CanvasPosition>, changes: readonly CanvasNodePositionChange[], stageKeys: readonly string[]) => {
+  const validKeys = new Set(stageKeys);
+  const moved = changes.filter((change): change is CanvasNodePositionChange & { id: string; position: CanvasPosition } => {
+    const id = change.id;
+    return change.type === "position" && typeof id === "string" && Boolean(change.position) && validKeys.has(id);
+  });
+  if (!moved.length) return undefined;
+  const positions = { ...current };
+  for (const change of moved) positions[change.id] = change.position;
+  return { positions, commit: moved.some((change) => !change.dragging) };
+};
 
 export const nodePositions = (data: WorkflowVersionEnvelope["data"]): Record<string, CanvasPosition> => {
   const saved = new Map((data.canvas?.nodes ?? []).map((node) => [node.stage_key, { x: node.x, y: node.y }]));
