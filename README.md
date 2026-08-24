@@ -11,7 +11,7 @@ git clone https://github.com/weifashi/project-orchestrator.git
 cd project-orchestrator
 pnpm install --frozen-lockfile
 pnpm release
-bash release/project-orchestrator-0.1.9/install.sh --both
+bash release/project-orchestrator-0.1.10/install.sh --both
 ```
 
 The installer is idempotent. It creates private state under `~/.project-orchestrator`, immutable releases under `~/.local/share/project-orchestrator/releases`, command links under `~/.local/bin`, separate Codex/Claude adapter credentials, SQLite/CAS state, and the built-in workflow templates. It also registers both local plugin marketplaces.
@@ -54,7 +54,7 @@ Backups, upgrade/rollback automation, uninstall/purge, and macOS LaunchAgents re
 
 ## 画布编排与运行观察
 
-- 在「流程模板」进入画布优先编辑器：空白处拖动平移，滚轮缩放，右下角小地图定位；`F` 适应画布，`Ctrl/Cmd+S` 保存草稿，`Ctrl/Cmd+Z` 撤销，`Esc` 取消选择。
+- 在「流程模板」进入画布优先编辑器：首次打开会自动把节点定位到视野中央；没有节点时，画布中央直接提供「添加节点」。空白处拖动平移，滚轮缩放，右下角小地图定位；`F` 适应画布，`Ctrl/Cmd+S` 保存草稿，`Ctrl/Cmd+Z` 撤销，`Esc` 取消选择。
 - 点击「添加节点」可搜索本机角色，也可以把角色卡拖入画布；从节点端口拖线建立前后依赖。节点设置和角色市场均以浮层打开，不会压缩画布。
 - 节点分组和折叠仅改变展示，不改变阶段、边或运行规则。强制安全门和受保护依赖不能删除或绕过。
 - 「任务记录」复用同一画布导航，但只能查看冻结流程、状态和证据；网页没有开始、暂停、重试、确认或部署功能。
