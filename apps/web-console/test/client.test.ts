@@ -54,4 +54,28 @@ describe("boundary-safe Web API client", () => {
       /adapter[_-]?credential|authorization/i,
     );
   });
+  // request() 给所有非 GET 请求都加 Content-Type: application/json。
+  // Fastify 对"声明了 JSON 却空 body"的请求直接 400，所以这些无入参的写操作
+  // 必须送一个空对象，否则线上点了没反应。
+  it.each([
+    ["remove", (api: ReturnType<typeof createApiClient>) => api.roles.remove("one")],
+    ["restore", (api: ReturnType<typeof createApiClient>) => api.roles.restore("one")],
+    ["resetBuiltin", (api: ReturnType<typeof createApiClient>) => api.roles.resetBuiltin("one")],
+  ])("sends a JSON body with %s so Fastify does not reject it", async (_name, call) => {
+    const calls: RequestInit[] = [];
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init) calls.push(init);
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const api = createApiClient({
+      fetch: fetcher as typeof fetch,
+      csrfToken: "csrf-test",
+    });
+    await call(api);
+    expect(new Headers(calls[0]?.headers).get("content-type")).toBe("application/json");
+    expect(calls[0]?.body).toBe("{}");
+  });
 });

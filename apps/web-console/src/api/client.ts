@@ -156,7 +156,7 @@ export function createApiClient(options: ClientOptions = {}) {
       remove: (id: string) =>
         request<{ removed: boolean }>(
           `/api/config/roles/${encodeURIComponent(id)}`,
-          { method: "DELETE" },
+          { method: "DELETE", body: "{}" },
         ),
       restore: (id: string) =>
         request<{ restored: boolean }>(
