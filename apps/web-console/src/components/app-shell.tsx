@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useI18n } from "../i18n";
 
+const appName = "Project Orchestrator";
 type NavItem = readonly [to: string, label: string, path: string];
 const nav: readonly NavItem[] = [
   ["/", "dashboard", "M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Zm3 1v4h4v-4H7Zm6 0v4h4v-4h-4Zm-6 6v3h4v-3H7Zm6 0v3h4v-3h-4Z"],
@@ -17,6 +18,20 @@ function Icon({ path }: { path: string }) {
 export function AppShell() {
   const location = useLocation(), main = useRef<HTMLElement>(null), { locale, setLocale, t } = useI18n();
   useEffect(() => { main.current?.querySelector<HTMLElement>("h1")?.focus(); }, [location.pathname]);
+  useEffect(() => {
+    const host = main.current;
+    if (!host) return;
+    // 页面标题跟随当前 h1：具体名称在前，窄标签页被截断时仍可分辨（如“缺陷修复 · P…”）。
+    // h1 在数据加载后才从占位文案变成实体名，所以用 MutationObserver 跟住这次变化。
+    const sync = () => {
+      const heading = host.querySelector("h1")?.textContent?.trim();
+      document.title = heading ? `${heading} · ${appName}` : appName;
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(host, { subtree: true, childList: true, characterData: true });
+    return () => observer.disconnect();
+  }, [location.pathname]);
   return <div className="app-frame">
     <a className="skip-link" href="#main-content">{t("skip")}</a>
     <header className="topbar">
