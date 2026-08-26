@@ -44,6 +44,8 @@ GET    /api/read/roles?include_removed=1    读取时默认过滤已移除
 ### 移除与恢复只动 `removed_at`
 移除与恢复都不修改 `roles.status`。一个 `disabled` 角色被移除再恢复后仍是 `disabled`，恢复不等于启用。两者是正交的两个维度：`status` 表示"是否可用于未来"，`removed_at` 表示"是否还出现在目录里"。
 
+例外是 `reset-builtin`：它的语义是"恢复出厂"，因此同时清 `removed_at` 并把 `status` 复位为 `active`，再发布内置定义的新版本。
+
 `DELETE` 与 `restore` 均幂等：对已处于目标状态的角色重复调用不报错，也不改写时间戳。
 
 ### 对已发布流程模板的影响
@@ -60,7 +62,12 @@ SELECT content_object_id,status FROM role_versions WHERE id=?
 在此处 join `roles`，`removed_at` 非空时同样拒绝，错误信息指明角色已被移除。流程模板发布校验同样加此判断。
 
 ### 已知缺陷（本次不修）
-主设计文档写明"`disabled` 角色不可用于新模板发布或 create_run"，但全仓找不到任何对 `roles.status` 的运行时校验——当前把角色停用后仍可用它创建 Run。此缺陷早于本次改动存在，不在本次范围内，单独记录待办。
+主设计文档写明"`disabled` 角色不可用于新模板发布或 create_run"。这两半只实现了一半：
+
+- **模板发布**已强制。`ConfigService.validateWorkflowPolicy` 检查 `role.roleStatus !== 'active'` 并拒绝。
+- **create_run 没有**。`run-service.ts` 只查 `role_versions.status`，不查 `roles.status`，所以把角色停用后仍可用它创建 Run。
+
+本次在同一处补的是 `removed_at` 拦截；`disabled` 这半边的缺口早于本次改动存在，不在本次范围内，单独记录待办。
 
 ## 页面与流转
 ```text

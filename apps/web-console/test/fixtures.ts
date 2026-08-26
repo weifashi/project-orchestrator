@@ -159,6 +159,10 @@ export function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
     },
     roles: {
       list: async () => [],
+      create: async () => ({ roleId: "role-new", slug: "new-role" }),
+      remove: async () => ({ removed: true }),
+      restore: async () => ({ restored: true }),
+      resetBuiltin: async () => ({ versionNumber: 2 }),
       getDraft: async () => roleDraft,
       saveDraft: async (_id, d) => ({
         ...roleDraft,

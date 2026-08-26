@@ -60,6 +60,7 @@ export type PublishedRoleRecord = Readonly<{
   forbiddenCapabilities: readonly string[];
   status: 'published' | 'revoked';
   roleStatus: 'active' | 'disabled' | 'archived';
+  roleRemoved: boolean;
   publishedAt: string;
 }>;
 
@@ -69,6 +70,7 @@ export type RoleRecord = Readonly<{
   name: string;
   status: 'active' | 'disabled' | 'archived';
   currentVersionId?: string;
+  removedAt?: string;
 }>;
 
 export type WorkflowTemplateRecord = Readonly<{
@@ -90,7 +92,8 @@ export interface ConfigRepository {
 }
 
 type RoleRow = {
-  id: string; slug: string; name: string; status: RoleRecord['status']; current_version_id: string | null;
+  id: string; slug: string; name: string; status: RoleRecord['status'];
+  current_version_id: string | null; removed_at: string | null;
 };
 type TemplateRow = {
   id: string; slug: string; name: string; task_type: WorkflowTaskType;
@@ -99,7 +102,8 @@ type TemplateRow = {
 type PublishedRoleRow = {
   id: string; role_id: string; slug: string; version_number: number; content_object_id: string; skill_hash: string;
   requested_capabilities: string; effective_capabilities: string; forbidden_capabilities: string;
-  status: PublishedRoleRecord['status']; role_status: PublishedRoleRecord['roleStatus']; published_at: string;
+  status: PublishedRoleRecord['status']; role_status: PublishedRoleRecord['roleStatus'];
+  role_removed_at: string | null; published_at: string;
 };
 type PublishedWorkflowRow = {
   id: string; workflow_template_id: string; slug: string; task_type: WorkflowTaskType; version_number: number;
@@ -127,6 +131,25 @@ export class SqliteConfigRepository implements ConfigRepository {
     const now = new Date().toISOString();
     this.db.prepare('INSERT OR IGNORE INTO roles(id,slug,name,status,created_at,updated_at) VALUES(?,?,?,?,?,?)')
       .run(input.id, input.slug, input.name, 'active', now, now);
+  }
+
+  // 墓碑式移除：只写 removed_at，外键与历史行全部保留。
+  // listRoles() 必须继续返回已移除角色，否则 seedBuiltins 会在重启时重建它们。
+  removeRole(id: string): boolean {
+    const now = new Date().toISOString();
+    return this.db.prepare('UPDATE roles SET removed_at=?,updated_at=? WHERE id=? AND removed_at IS NULL')
+      .run(now, now, id).changes === 1;
+  }
+
+  setRoleStatus(id: string, status: RoleRecord['status']): boolean {
+    return this.db.prepare('UPDATE roles SET status=?,updated_at=? WHERE id=?')
+      .run(status, new Date().toISOString(), id).changes === 1;
+  }
+
+  restoreRole(id: string): boolean {
+    const now = new Date().toISOString();
+    return this.db.prepare('UPDATE roles SET removed_at=NULL,updated_at=? WHERE id=? AND removed_at IS NOT NULL')
+      .run(now, id).changes === 1;
   }
 
   saveWorkflowDraft(templateId: string, expectedRevision: number, envelope: unknown): number {
@@ -191,7 +214,7 @@ export class SqliteConfigRepository implements ConfigRepository {
   }
 
   getPublishedRole(id: string): PublishedRoleRecord | undefined {
-    const row = this.db.prepare(`SELECT v.*,r.slug,r.status AS role_status FROM role_versions v
+    const row = this.db.prepare(`SELECT v.*,r.slug,r.status AS role_status,r.removed_at AS role_removed_at FROM role_versions v
       JOIN roles r ON r.id=v.role_id WHERE v.id=?`).get(id) as PublishedRoleRow | undefined;
     return row === undefined ? undefined : immutable({
       id: row.id, roleId: row.role_id, slug: row.slug, versionNumber: row.version_number,
@@ -199,15 +222,17 @@ export class SqliteConfigRepository implements ConfigRepository {
       requestedCapabilities: JSON.parse(row.requested_capabilities) as string[],
       effectiveCapabilities: JSON.parse(row.effective_capabilities) as string[],
       forbiddenCapabilities: JSON.parse(row.forbidden_capabilities) as string[],
-      status: row.status, roleStatus: row.role_status, publishedAt: row.published_at,
+      status: row.status, roleStatus: row.role_status,
+      roleRemoved: row.role_removed_at !== null, publishedAt: row.published_at,
     });
   }
 
   getRole(id: string): RoleRecord | undefined {
-    const row = this.db.prepare('SELECT id,slug,name,status,current_version_id FROM roles WHERE id=?').get(id) as RoleRow | undefined;
+    const row = this.db.prepare('SELECT id,slug,name,status,current_version_id,removed_at FROM roles WHERE id=?').get(id) as RoleRow | undefined;
     if (row === undefined) return undefined;
     const base = { id: row.id, slug: row.slug, name: row.name, status: row.status };
-    return immutable(row.current_version_id === null ? base : { ...base, currentVersionId: row.current_version_id });
+    const withVersion = row.current_version_id === null ? base : { ...base, currentVersionId: row.current_version_id };
+    return immutable(row.removed_at === null ? withVersion : { ...withVersion, removedAt: row.removed_at });
   }
 
   getWorkflowTemplate(id: string): WorkflowTemplateRecord | undefined {

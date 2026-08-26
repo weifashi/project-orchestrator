@@ -138,7 +138,36 @@ export function createApiClient(options: ClientOptions = {}) {
         }),
     }),
     roles: Object.freeze({
-      list: () => request<RoleSummary[]>("/api/read/roles"),
+      list: (includeRemoved = false) =>
+        request<RoleSummary[]>(
+          `/api/read/roles${includeRemoved ? "?include_removed=1" : ""}`,
+        ),
+      create: (input: {
+        slug: string;
+        display_name: string;
+        responsibilities: string[];
+        requested_capabilities: string[];
+        body_markdown?: string;
+      }) =>
+        request<{ roleId: string; slug: string }>("/api/config/roles", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      remove: (id: string) =>
+        request<{ removed: boolean }>(
+          `/api/config/roles/${encodeURIComponent(id)}`,
+          { method: "DELETE" },
+        ),
+      restore: (id: string) =>
+        request<{ restored: boolean }>(
+          `/api/config/roles/${encodeURIComponent(id)}/restore`,
+          { method: "POST", body: "{}" },
+        ),
+      resetBuiltin: (id: string) =>
+        request<{ versionNumber: number }>(
+          `/api/config/roles/${encodeURIComponent(id)}/reset-builtin`,
+          { method: "POST", body: "{}" },
+        ),
       getDraft: (id: string, source: boolean | string = false) =>
         request<RoleDraft>(
           typeof source === "string"

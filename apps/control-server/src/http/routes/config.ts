@@ -9,11 +9,37 @@ type PublishBody = {
   expected_revision: number;
   status?: "active" | "disabled" | "archived";
 };
+type CreateRoleBody = {
+  slug?: unknown;
+  display_name?: unknown;
+  responsibilities?: unknown;
+  requested_capabilities?: unknown;
+  body_markdown?: unknown;
+};
 export type ConfigHandlers = {
   saveWorkflowDraft: (entityId: string, body: SaveDraftBody) => unknown;
   publishWorkflow: (entityId: string, body: PublishBody) => unknown;
   saveRoleDraft: (entityId: string, body: SaveDraftBody) => unknown;
   publishRole: (entityId: string, body: PublishBody) => unknown;
+  createRole: (body: CreateRoleBody) => unknown;
+  removeRole: (roleId: string) => unknown;
+  restoreRole: (roleId: string) => unknown;
+  resetRoleToBuiltin: (roleId: string) => unknown;
+};
+
+const stringList = (value: unknown, field: string): string[] => {
+  if (!Array.isArray(value)) throw new Error(`CONFIG_INVALID: ${field}`);
+  return value.map((item) => {
+    if (typeof item !== "string" || item.trim() === "")
+      throw new Error(`CONFIG_INVALID: ${field}`);
+    return item.trim();
+  });
+};
+
+const requiredString = (value: unknown, field: string): string => {
+  if (typeof value !== "string" || value.trim() === "")
+    throw new Error(`CONFIG_INVALID: ${field}`);
+  return value.trim();
 };
 
 const wildcard = (params: unknown): string =>
@@ -96,6 +122,28 @@ export function createConfigHandlers(
       };
       return db === undefined ? publish() : db.transaction(publish).immediate();
     },
+    createRole: (body) => {
+      const input = {
+        slug: requiredString(body.slug, "slug"),
+        displayName: requiredString(body.display_name, "display_name"),
+        responsibilities: stringList(body.responsibilities, "responsibilities"),
+        requestedCapabilities: stringList(
+          body.requested_capabilities ?? [],
+          "requested_capabilities",
+        ),
+        ...(typeof body.body_markdown === "string"
+          ? { bodyMarkdown: body.body_markdown }
+          : {}),
+      };
+      const create = () => service.createRole(input);
+      return db === undefined ? create() : db.transaction(create).immediate();
+    },
+    removeRole: (roleId) => service.removeRole(roleId),
+    restoreRole: (roleId) => service.restoreRole(roleId),
+    resetRoleToBuiltin: (roleId) => {
+      const reset = () => service.resetRoleToBuiltin(roleId);
+      return db === undefined ? reset() : db.transaction(reset).immediate();
+    },
   };
 }
 
@@ -123,5 +171,17 @@ export function registerConfigRoutes(
   );
   app.post("/api/config/roles/:id/publish", async (request) =>
     handlers.publishRole(routeId(request.params), request.body as PublishBody),
+  );
+  app.post("/api/config/roles", async (request) =>
+    handlers.createRole((request.body ?? {}) as CreateRoleBody),
+  );
+  app.delete("/api/config/roles/:id", async (request) =>
+    handlers.removeRole(routeId(request.params)),
+  );
+  app.post("/api/config/roles/:id/restore", async (request) =>
+    handlers.restoreRole(routeId(request.params)),
+  );
+  app.post("/api/config/roles/:id/reset-builtin", async (request) =>
+    handlers.resetRoleToBuiltin(routeId(request.params)),
   );
 }

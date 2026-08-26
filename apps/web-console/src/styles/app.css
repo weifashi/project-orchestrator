@@ -313,6 +313,8 @@ main {
   border-color: rgba(52, 211, 153, 0.7);
 }
 .button.ghost { background: transparent; }
+.button.danger { color: #fecaca; border-color: rgba(248, 113, 113, 0.42); }
+.button.danger:hover:not(:disabled) { border-color: rgba(248, 113, 113, 0.75); }
 .button:disabled {
   opacity: 0.48;
   cursor: not-allowed;

@@ -13,10 +13,19 @@ import {
   type PublishedWorkflowRecord,
   type SqliteConfigRepository,
 } from '@project-orchestrator/sqlite-store';
+import { builtinRoleEnvelope, isBuiltinRoleSlug } from './seed-builtins.js';
 
 export type SaveDraftInput = { entityId: string; expectedRevision: number; envelope: unknown };
 export type SavedDraft = Readonly<{ revision: number }>;
 export type PublishRoleInput = { roleId: string; envelope: unknown };
+export type CreateRoleInput = {
+  slug: string;
+  displayName: string;
+  responsibilities: readonly string[];
+  requestedCapabilities: readonly string[];
+  bodyMarkdown?: string;
+};
+export type CreatedRole = Readonly<{ roleId: string; slug: string; version: PublishedVersion }>;
 export type PublishWorkflowInput = { workflowTemplateId: string; envelope: unknown; description?: string };
 export type PublishedVersion = Readonly<{
   id: string;
@@ -40,6 +49,16 @@ const DEFAULT_CAPABILITY_ALLOWLIST = [
 ] as const;
 
 const NEVER_REQUESTABLE = new Set(['production-shell', 'raw-production-credentials', 'secret-read']);
+
+const ROLE_SLUG_PATTERN = /^[a-z][a-z0-9-]*$/;
+const ROLE_SLUG_MAX_LENGTH = 64;
+
+// 自定义角色沿用内置角色的禁止能力基线；网页不得放宽它。
+const DEFAULT_FORBIDDEN_CAPABILITIES = ['production-shell', 'raw-production-credentials'] as const;
+
+const genericEnvelope = (slug: string, kind: string) => ({
+  schema_id: `project-orchestrator/${slug}-${kind}`, schema_version: 1, data: {},
+});
 
 export class ConfigService {
   readonly #validator = new ContractValidator();
@@ -81,6 +100,7 @@ export class ConfigService {
     canonicalJson(envelope);
     const role = this.#repository.getRole(input.roleId);
     if (role === undefined || role.status !== 'active') throw new Error(`NOT_FOUND: active role ${input.roleId}`);
+    if (role.removedAt !== undefined) throw new Error(`POLICY_VIOLATION: role ${role.slug} was removed`);
     if (role.slug !== envelope.data.slug) throw new Error('POLICY_VIOLATION: role slug does not match parent');
 
     for (const capability of envelope.data.requested_capabilities) {
@@ -139,6 +159,72 @@ export class ConfigService {
     });
   }
 
+  /** 新建自定义角色并立即发布 v1，不留"建了却用不了"的中间态。 */
+  createRole(input: CreateRoleInput): CreatedRole {
+    const slug = input.slug.trim();
+    if (!ROLE_SLUG_PATTERN.test(slug) || slug.length > ROLE_SLUG_MAX_LENGTH) {
+      throw new Error(`CONFIG_INVALID: role slug ${input.slug}`);
+    }
+    const existing = this.#repository.listRoles().find((candidate) => candidate.slug === slug);
+    if (existing !== undefined) {
+      throw new Error(existing.removedAt === undefined
+        ? `POLICY_VIOLATION: role slug ${slug} already exists`
+        : `POLICY_VIOLATION: role slug ${slug} belongs to a removed role; restore it instead`);
+    }
+    if (input.responsibilities.length === 0) throw new Error('CONFIG_INVALID: responsibilities are required');
+
+    const roleId = randomUUID();
+    this.#repository.createRole({ id: roleId, slug, name: input.displayName });
+    const version = this.publishRole({
+      roleId,
+      envelope: {
+        schema_id: 'project-orchestrator/role-version', schema_version: 1,
+        data: {
+          slug,
+          display_name: input.displayName,
+          responsibilities: [...input.responsibilities],
+          requested_capabilities: [...input.requestedCapabilities],
+          forbidden_capabilities: [...DEFAULT_FORBIDDEN_CAPABILITIES],
+          input_schema: genericEnvelope(slug, 'input'),
+          output_schema: genericEnvelope(slug, 'output'),
+          completion_contract: genericEnvelope(slug, 'completion'),
+          body_markdown: input.bodyMarkdown?.trim()
+            || `# ${input.displayName}\n\n${input.responsibilities.join('\n')}`,
+        },
+      },
+    });
+    return Object.freeze({ roleId, slug, version });
+  }
+
+  /** 墓碑式移除。历史 Run 与已发布版本一律保留，可恢复。幂等。 */
+  removeRole(roleId: string): Readonly<{ removed: boolean }> {
+    const role = this.#repository.getRole(roleId);
+    if (role === undefined) throw new Error(`NOT_FOUND: role ${roleId}`);
+    return Object.freeze({ removed: this.#repository.removeRole(roleId) });
+  }
+
+  /** 恢复已移除角色。只清 removed_at，不改 status。幂等。 */
+  restoreRole(roleId: string): Readonly<{ restored: boolean }> {
+    const role = this.#repository.getRole(roleId);
+    if (role === undefined) throw new Error(`NOT_FOUND: role ${roleId}`);
+    return Object.freeze({ restored: this.#repository.restoreRole(roleId) });
+  }
+
+  /**
+   * 恢复为内置默认：回到出厂状态，因此同时清 removed_at 并把 status 复位为 active，
+   * 再用内置定义发布一个新版本——历史版本不被修改，版本不可变这条不破。
+   */
+  resetRoleToBuiltin(roleId: string): PublishedVersion {
+    const role = this.#repository.getRole(roleId);
+    if (role === undefined) throw new Error(`NOT_FOUND: role ${roleId}`);
+    if (!isBuiltinRoleSlug(role.slug)) {
+      throw new Error(`POLICY_VIOLATION: role ${role.slug} has no built-in definition`);
+    }
+    this.#repository.restoreRole(roleId);
+    this.#repository.setRoleStatus(roleId, 'active');
+    return this.publishRole({ roleId, envelope: builtinRoleEnvelope(role.slug) });
+  }
+
   listPublishedTemplates(taskType?: string): PublishedWorkflowRecord[] {
     return this.#repository.listPublishedWorkflows(taskType);
   }
@@ -154,6 +240,9 @@ export class ConfigService {
       const role = this.#repository.getPublishedRole(stage.role_version_id);
       if (role === undefined || role.status !== 'published' || role.roleStatus !== 'active') {
         throw new Error(`POLICY_VIOLATION: stage ${stage.key} references an inactive or missing role`);
+      }
+      if (role.roleRemoved) {
+        throw new Error(`POLICY_VIOLATION: stage ${stage.key} references removed role ${role.slug}`);
       }
       roleSlugByStage.set(stage.key, role.slug);
     }

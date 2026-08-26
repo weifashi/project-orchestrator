@@ -24,6 +24,31 @@ const ROLE_DETAILS: Record<typeof BUILTIN_ROLE_SLUGS[number], {
   'memory-docs': { displayName: 'Memory and Documentation', responsibility: 'Deduplicate, redact, and archive decisions, rules, delivery evidence, and lessons.', requestedCapabilities: ['read-workspace', 'write-workspace'] },
 };
 
+export type BuiltinRoleSlug = typeof BUILTIN_ROLE_SLUGS[number];
+
+export function isBuiltinRoleSlug(slug: string): slug is BuiltinRoleSlug {
+  return (BUILTIN_ROLE_SLUGS as readonly string[]).includes(slug);
+}
+
+/** 内置角色的出厂定义。seedBuiltins 首次播种与「恢复为内置默认」共用同一个真源。 */
+export function builtinRoleEnvelope(slug: BuiltinRoleSlug) {
+  const detail = ROLE_DETAILS[slug];
+  return {
+    schema_id: 'project-orchestrator/role-version', schema_version: 1,
+    data: {
+      slug,
+      display_name: detail.displayName,
+      responsibilities: [detail.responsibility],
+      requested_capabilities: detail.requestedCapabilities,
+      forbidden_capabilities: ['production-shell', 'raw-production-credentials'],
+      input_schema: genericEnvelope(slug, 'input'),
+      output_schema: genericEnvelope(slug, 'output'),
+      completion_contract: genericEnvelope(slug, 'completion'),
+      body_markdown: `# ${detail.displayName}\n\n${detail.responsibility}`,
+    },
+  };
+}
+
 function genericEnvelope(slug: string, kind: string) {
   return { schema_id: `project-orchestrator/${slug}-${kind}`, schema_version: 1, data: {} };
 }
@@ -187,23 +212,7 @@ export function seedBuiltins(service: ConfigService, repository: SqliteConfigRep
     if (role === undefined) throw new Error(`Failed to create built-in role ${slug}`);
     let versionId = role.currentVersionId;
     if (versionId === undefined) {
-      versionId = service.publishRole({
-        roleId: role.id,
-        envelope: {
-          schema_id: 'project-orchestrator/role-version', schema_version: 1,
-          data: {
-            slug,
-            display_name: detail.displayName,
-            responsibilities: [detail.responsibility],
-            requested_capabilities: detail.requestedCapabilities,
-            forbidden_capabilities: ['production-shell', 'raw-production-credentials'],
-            input_schema: genericEnvelope(slug, 'input'),
-            output_schema: genericEnvelope(slug, 'output'),
-            completion_contract: genericEnvelope(slug, 'completion'),
-            body_markdown: `# ${detail.displayName}\n\n${detail.responsibility}`,
-          },
-        },
-      }).id;
+      versionId = service.publishRole({ roleId: role.id, envelope: builtinRoleEnvelope(slug) }).id;
     }
     roleVersionIds.set(slug, versionId);
   }

@@ -6,13 +6,8 @@ import { ErrorPanel } from "../components/error-panel";
 import { VersionBanner } from "../components/version-banner";
 import { useLoad } from "./use-load";
 import { useI18n } from "../i18n";
-const capabilities = [
-  "read-workspace",
-  "write-workspace",
-  "network-read",
-  "execute-tests",
-  "managed-side-effect",
-];
+import { CAPABILITIES } from "../capabilities";
+const capabilities: string[] = [...CAPABILITIES];
 export function RoleEditorPage() {
   const { t, label } = useI18n();
   const { id = "" } = useParams(),
@@ -138,14 +133,39 @@ export function RoleEditorPage() {
                 .catch((error: unknown) =>
                   setMessage(
                     error instanceof Error
-                      ? `${t("restoreBuiltin")}：${error.message}`
+                      ? `${t("copyPublished")}：${error.message}`
                       : t("operationFailed"),
                   ),
                 );
             }}
           >
-            {t("restoreBuiltin")}
+            {t("copyPublished")}
           </button>
+          {catalog.data?.find((role) => role.id === id)?.is_builtin === true && (
+            <button
+              className="button"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                void api.roles
+                  .resetBuiltin(id)
+                  .then(() => {
+                    setMessage(t("roleResetBuiltin"));
+                    return loaded.setData(undefined);
+                  })
+                  .catch((error: unknown) =>
+                    setMessage(
+                      error instanceof Error
+                        ? `${t("resetBuiltin")}：${error.message}`
+                        : t("operationFailed"),
+                    ),
+                  )
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {t("resetBuiltin")}
+            </button>
+          )}
           <button
             className="button"
             disabled={

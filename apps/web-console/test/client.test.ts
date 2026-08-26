@@ -12,10 +12,14 @@ describe("boundary-safe Web API client", () => {
       "saveDraft",
     ]);
     expect(Object.keys(api.roles).sort()).toEqual([
+      "create",
       "getDraft",
       "getVersion",
       "list",
       "publish",
+      "remove",
+      "resetBuiltin",
+      "restore",
       "saveDraft",
     ]);
     expect(Object.keys(api.runs).sort()).toEqual(["get", "list"]);

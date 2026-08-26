@@ -106,9 +106,12 @@ export class RunService {
         throw new Error('ADAPTER_CAPABILITY_INCOMPATIBLE');
       }
       const roleBundle = workflow.data.stages.map((stage) => {
-        const row = this.db.prepare(`SELECT content_object_id,status FROM role_versions WHERE id=?`)
-          .get(stage.role_version_id) as { content_object_id: string; status: string } | undefined;
+        const row = this.db.prepare(`SELECT v.content_object_id,v.status,r.slug,r.removed_at FROM role_versions v
+          JOIN roles r ON r.id=v.role_id WHERE v.id=?`)
+          .get(stage.role_version_id) as
+          { content_object_id: string; status: string; slug: string; removed_at: string | null } | undefined;
         if (!row || row.status !== 'published') throw new Error(`POLICY_VIOLATION: unavailable role ${stage.role_version_id}`);
+        if (row.removed_at !== null) throw new Error(`POLICY_VIOLATION: removed role ${row.slug}`);
         this.content.verify(row.content_object_id);
         return {
           roleVersionId: stage.role_version_id,

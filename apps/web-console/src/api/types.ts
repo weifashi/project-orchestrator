@@ -39,6 +39,8 @@ export type RoleSummary = {
   current_version_id: string | null;
   version_number: number | null;
   updated_at: string;
+  removed_at?: string | null;
+  is_builtin?: boolean;
   requested_capabilities?: string[];
   effective_capabilities?: string[];
   forbidden_capabilities?: string[];

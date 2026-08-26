@@ -2,6 +2,9 @@ import { basename } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type Database from "better-sqlite3";
 import type { ContentStore } from "@project-orchestrator/content-store";
+import { BUILTIN_ROLE_SLUGS } from "@project-orchestrator/orchestrator-service";
+
+const builtinSlugs = new Set<string>(BUILTIN_ROLE_SLUGS);
 
 const wildcard = (params: unknown): string =>
   String((params as { "*": string })["*"]);
@@ -149,15 +152,21 @@ export function registerReadRoutes(
       updated_at: row.published_at,
     };
   });
-  app.get("/api/read/roles", async () => {
+  app.get("/api/read/roles", async (req) => {
+    // 默认隐藏已移除角色；?include_removed=1 供"已移除"区读取。
+    // 注意：过滤只发生在这里，listRoles() 必须继续返回全部角色，否则 seedBuiltins 会重建已移除的内置角色。
+    const includeRemoved =
+      (req.query as { include_removed?: string }).include_removed === "1";
     const rows = db
       .prepare(
-        `SELECT r.id,r.slug,r.name,r.status,r.current_version_id,r.updated_at,v.version_number,
-   v.requested_capabilities,v.effective_capabilities,v.forbidden_capabilities FROM roles r LEFT JOIN role_versions v ON v.id=r.current_version_id ORDER BY r.slug`,
+        `SELECT r.id,r.slug,r.name,r.status,r.current_version_id,r.updated_at,r.removed_at,v.version_number,
+   v.requested_capabilities,v.effective_capabilities,v.forbidden_capabilities FROM roles r LEFT JOIN role_versions v ON v.id=r.current_version_id
+   ${includeRemoved ? "" : "WHERE r.removed_at IS NULL"} ORDER BY r.slug`,
       )
       .all() as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       ...row,
+      is_builtin: builtinSlugs.has(String(row["slug"])),
       requested_capabilities: parsed(
         String(row["requested_capabilities"] ?? "[]"),
       ),
