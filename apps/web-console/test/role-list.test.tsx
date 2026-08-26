@@ -95,6 +95,20 @@ it("creates a role only once slug, name, and a responsibility are present", asyn
   });
 });
 
+it("opens the form in a drawer so the catalog stays on screen", async () => {
+  const api = fakeApi({ roles: { ...fakeApi().roles, list: async () => [role()] } });
+  mount(api);
+  await screen.findByText("测试验证");
+
+  await userEvent.click(screen.getByRole("button", { name: "新建角色" }));
+  expect(screen.getByRole("dialog", { name: "新建自定义角色" })).toBeVisible();
+  // 抽屉是覆盖层，不挤占目录
+  expect(screen.getByText("测试验证")).toBeVisible();
+
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
 it("keeps the create button disabled for an invalid slug", async () => {
   const api = fakeApi({ roles: { ...fakeApi().roles, list: async () => [role()] } });
   mount(api);

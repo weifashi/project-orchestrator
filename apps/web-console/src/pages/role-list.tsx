@@ -4,6 +4,7 @@ import type { RoleSummary } from "../api/types";
 import { useApi } from "../api/context";
 import { CAPABILITIES } from "../capabilities";
 import { Badge } from "../components/badge";
+import { CanvasDrawer } from "../components/canvas-drawer";
 import { EmptyState } from "../components/empty-state";
 import { ErrorPanel } from "../components/error-panel";
 import { VersionInspector } from "../components/version-inspector";
@@ -21,20 +22,18 @@ function CreateRoleForm({ busy, onCancel, onSubmit }: {
   const requested = new Set(caps);
   const lines = duties.split("\n").map((line) => line.trim()).filter(Boolean);
   const ready = /^[a-z][a-z0-9-]*$/.test(slug) && name.trim() !== "" && lines.length > 0;
-  return <section className="card span-12 mb-16">
-    <div className="page-head"><div><h2>{t("newRoleTitle")}</h2><p className="muted">{t("newRoleHint")}</p></div></div>
-    <div className="form-grid">
-      <div className="field">
-        <label htmlFor="role-slug"><span>{t("roleSlug")}</span></label>
-        <input id="role-slug" value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="my-role" aria-describedby="role-slug-hint" />
-        <small id="role-slug-hint" className="muted">{t("roleSlugHint")}</small>
-      </div>
-      <label className="field"><span>{t("displayName")}</span>
-        <input value={name} onChange={(event) => setName(event.target.value)} />
-      </label>
+  return <CanvasDrawer title={t("newRoleTitle")} onClose={onCancel} className="role-create">
+    <p className="muted">{t("newRoleHint")}</p>
+    <div className="field">
+      <label htmlFor="role-slug"><span>{t("roleSlug")}</span></label>
+      <input id="role-slug" autoFocus value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="my-role" aria-describedby="role-slug-hint" />
+      <small id="role-slug-hint" className="muted">{t("roleSlugHint")}</small>
     </div>
+    <label className="field"><span>{t("displayName")}</span>
+      <input value={name} onChange={(event) => setName(event.target.value)} />
+    </label>
     <label className="field"><span>{t("roleResponsibilities")}</span>
-      <textarea rows={4} value={duties} onChange={(event) => setDuties(event.target.value)} />
+      <textarea rows={3} value={duties} onChange={(event) => setDuties(event.target.value)} />
     </label>
     <h3>{t("requestCapabilities")}</h3>
     <div className="button-row">
@@ -46,14 +45,14 @@ function CreateRoleForm({ busy, onCancel, onSubmit }: {
         onChange={() => setCaps((current) => current.includes(cap) ? current.filter((item) => item !== cap) : [...current, cap])} />
       {label(cap)}
     </label>)}</div>
-    <div className="button-row mt-14">
+    <div className="button-row drawer-actions">
       <button className="button primary" type="button" disabled={busy || !ready}
         onClick={() => onSubmit({ slug, display_name: name.trim(), responsibilities: lines, requested_capabilities: caps })}>
         {t("create")}
       </button>
       <button className="button ghost" type="button" disabled={busy} onClick={onCancel}>{t("cancel")}</button>
     </div>
-  </section>;
+  </CanvasDrawer>;
 }
 
 export function RoleListPage() {
@@ -109,10 +108,10 @@ export function RoleListPage() {
       <button className="button primary" type="button" disabled={busy || creating} onClick={() => { setCreating(true); setMessage(""); }}>{t("newRole")}</button>
     </div>
     <p role="status" aria-live="polite" className="muted">{message}</p>
+    {creating && <CreateRoleForm busy={busy} onCancel={() => setCreating(false)}
+      onSubmit={(input) => act(api.roles.create(input), t("roleCreated"))} />}
     {error ? <ErrorPanel error={error} /> : <div className="grid">
-      {creating && <CreateRoleForm busy={busy} onCancel={() => setCreating(false)}
-        onSubmit={(input) => act(api.roles.create(input), t("roleCreated"))} />}
-      {present.length ? present.map(card) : !creating && <EmptyState />}
+      {present.length ? present.map(card) : <EmptyState />}
       <section className="card span-12">
         <details>
           <summary>{t("removedRoles")} ({removed.length})</summary>
