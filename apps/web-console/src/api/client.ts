@@ -79,6 +79,7 @@ export function createApiClient(options: ClientOptions = {}) {
         typeof value === "object" && value !== null && "error" in value
           ? String((value as { error: unknown }).error)
           : `Request failed (${response.status})`;
+      if (response.status === 403 && message === "unauthorized" && typeof window !== "undefined" && window.location.pathname !== "/bootstrap") window.location.assign("/bootstrap");
       throw new ApiError(response.status, message);
     }
     return value as T;

@@ -8,6 +8,7 @@ export function useLoad<T>(
   useEffect(() => {
     let active = true;
     setError(undefined);
+    setData(undefined);
     void load().then(
       (value) => {
         if (active) setData(value);

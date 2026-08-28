@@ -38,6 +38,7 @@ export function AppShell() {
       <div className="brand-lockup"><span className="mark">PO</span><span><strong>Project Orchestrator</strong><small>{t("localControl")}</small></span></div>
       <div className="topbar-meta"><span>{t("templateOnly")}</span><span className="local-pill"><i />127.0.0.1 · {t("localOnly")}</span>
         <label className="locale-switch"><span>{t("language")}</span><select aria-label={t("switchLanguage")} value={locale} onChange={(event) => setLocale(event.target.value as typeof locale)}><option value="zh-CN">{t("chinese")}</option><option value="en">{t("english")}</option></select></label>
+        <form className="logout-form" method="post" action="/logout"><button className="button logout-button" type="submit">{t("logout")}</button></form>
       </div>
     </header>
     <aside className="sidebar" aria-label={t("dashboard")}><div className="sidebar-note"><strong>{t("webBoundaryTitle")}</strong><span>{t("webBoundaryBody")}</span></div><nav>{nav.map(([to, label, path]) => <NavLink key={to} to={to} end={to === "/"}><Icon path={path} /><span>{t(label)}</span></NavLink>)}</nav></aside>

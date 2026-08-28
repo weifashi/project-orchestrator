@@ -1,11 +1,16 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { ApiContext } from "../src/api/context";
 import { RunDetailPage } from "../src/pages/run-detail";
 import { fakeApi } from "./fixtures";
+import { LocaleProvider } from "../src/i18n";
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
 it("renders active stages, waits, attempts, artifacts and unknown side effects without controls", async () => {
   render(
     <ApiContext.Provider value={fakeApi()}>
@@ -44,4 +49,52 @@ it("renders active stages, waits, attempts, artifacts and unknown side effects w
     expect(
       screen.queryByRole("button", { name: new RegExp(name) }),
     ).not.toBeInTheDocument();
+});
+
+it("refreshes the complete Run snapshot after a live event", async () => {
+  let reads = 0;
+  const api = fakeApi({
+    runs: {
+      list: async () => [],
+      get: async () => ({
+        ...(await fakeApi().runs.get("run-1")),
+        status: reads++ === 0 ? "created" : "running",
+        stages: [{ id: "stage-testing", stage_key: "testing", iteration_number: 0, role_version_id: "role-v1", status: reads === 1 ? "queued" : "running" }],
+      }),
+    },
+    events: {
+      list: async () => [{ id: "live-2", run_id: "run-1", stage_run_id: "stage-testing", sequence_number: 2, event_type: "stage_started", payload_envelope: {}, created_at: "2026-08-20T00:03:00Z" }],
+    },
+  });
+  const { container } = render(
+    <ApiContext.Provider value={api}>
+      <MemoryRouter initialEntries={["/runs/run-1"]}>
+        <Routes><Route path="/runs/:id" element={<RunDetailPage />} /></Routes>
+      </MemoryRouter>
+    </ApiContext.Provider>,
+  );
+
+  expect(await screen.findByText("执行中")).toBeInTheDocument();
+  expect(container.querySelector(".workflow-node.is-running")).toBeInTheDocument();
+  fireEvent.click(container.querySelector(".workflow-node.is-running") as HTMLElement);
+  expect(screen.getByRole("dialog", { name: "节点设置" })).toHaveTextContent(/状态.*执行中/);
+  expect(reads).toBeGreaterThanOrEqual(2);
+});
+
+it("translates artifact download actions in English", async () => {
+  window.localStorage.setItem("po-locale", "en");
+  render(
+    <LocaleProvider>
+      <ApiContext.Provider value={fakeApi()}>
+        <MemoryRouter initialEntries={["/runs/run-1"]}>
+          <Routes><Route path="/runs/:id" element={<RunDetailPage />} /></Routes>
+        </MemoryRouter>
+      </ApiContext.Provider>
+    </LocaleProvider>,
+  );
+  await screen.findByText("Implement safe console");
+  await userEvent.click(screen.getByRole("tab", { name: "Artifacts" }));
+  expect(screen.getByRole("link", { name: "Download" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: "Tests" }));
+  expect(screen.getByRole("link", { name: "Download evidence" })).toBeInTheDocument();
 });

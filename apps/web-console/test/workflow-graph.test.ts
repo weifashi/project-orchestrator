@@ -8,8 +8,8 @@ describe("workflow canvas graph", () => {
   it("reports a bypass around a mandatory gate", () => { const input = workflow(); input.data.edges.push({ from: "requirements", to: "operations", edge_type: "requires" }); expect(validateGraph(input.data.stages, input.data.edges).some((item) => item.code === "gate-bypass")).toBe(true); });
   it("adds and collapses visual-only canvas groups", () => {
     const grouped = createCanvasGroup(workflow(), "quality", "质量门", ["testing"]);
-    expect(grouped.data.canvas?.groups).toEqual([{ id: "quality", label: "质量门", stage_keys: ["testing"], collapsed: false }]);
-    expect(toggleCanvasGroup(grouped, "quality").data.canvas?.groups?.[0]?.collapsed).toBe(true);
+    expect(grouped.data.canvas?.groups).toEqual([{ id: "quality", label: "质量门", stage_keys: ["testing"], collapsed: true }]);
+    expect(toggleCanvasGroup(grouped, "quality").data.canvas?.groups?.[0]?.collapsed).toBe(false);
     expect(grouped.data.stages).toHaveLength(3);
   });
   it("keeps a mandatory gate but permits editing a selected connection", () => {

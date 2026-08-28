@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { OperationHelperClient, prepareRuntimeStartup } from '@project-orchestrator/control-server';
@@ -9,6 +9,20 @@ import { principal, runtimeFixture } from '../../packages/orchestrator-service/t
 
 const directories: string[] = [];
 afterEach(() => directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })));
+
+it('pings the operation helper without side effects and removes its socket on shutdown', async () => {
+  const fixture = runtimeFixture();
+  directories.push(fixture.dir);
+  const socketPath = join(fixture.dir, 'operation-ready.sock');
+  const server = await startOperationServer(socketPath, DriverRegistry.forTestFixtures([]));
+  const helper = new OperationHelperClient(socketPath, 250);
+
+  await expect(helper.ping()).resolves.toBeUndefined();
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  expect(existsSync(socketPath)).toBe(false);
+  await expect(helper.ping()).rejects.toThrow('OPERATION_HELPER_UNAVAILABLE');
+  fixture.db.close();
+});
 
 it('keeps an uncertain helper result unknown and reconciles it through the isolated helper', async () => {
   const fixture = runtimeFixture();

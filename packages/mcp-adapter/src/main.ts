@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -27,7 +27,14 @@ function diagnostic(error: unknown): string {
   return (/^[A-Z][A-Z0-9_]*(?:: [^\r\n]*)?/.exec(raw)?.[0] ?? 'ADAPTER_START_FAILED').slice(0, 512);
 }
 
+function runtimeVersion(): string {
+  const path = process.env['PROJECT_ORCHESTRATOR_VERSION_FILE'];
+  if (path !== undefined && existsSync(path)) return readFileSync(path, 'utf8').trim() || 'development';
+  return process.env['PROJECT_ORCHESTRATOR_VERSION']?.trim() || 'development';
+}
+
 async function main(): Promise<void> {
+  const version = runtimeVersion();
   const clientType = argument('--client');
   if (clientType !== 'codex' && clientType !== 'claude') throw new Error('CLIENT_TYPE_INVALID');
   const credential = loadAdapterCredential(process.env['PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE']
@@ -44,7 +51,7 @@ async function main(): Promise<void> {
   }));
   await ipc.connect();
   const runtime = new AdapterRuntime({
-    capabilities: createConservativeCapabilities(clientType, '0.1.5'),
+    capabilities: createConservativeCapabilities(clientType, version),
     sessionGuard: new SessionGuard({
       sessionId,
       recoveryStore: new RecoveryCredentialStore(
@@ -56,7 +63,7 @@ async function main(): Promise<void> {
   });
   const tools = runtime.tools();
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
-  const server = new Server({ name: 'project-orchestrator', version: '0.1.5' }, {
+  const server = new Server({ name: 'project-orchestrator', version }, {
     capabilities: { tools: {} },
     instructions: JSON.stringify({
       host_capabilities: runtime.capabilities,

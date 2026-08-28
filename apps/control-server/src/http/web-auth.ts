@@ -6,6 +6,7 @@ const tokenBytes = 32;
 const sessionLifetimeMs = 12 * 60 * 60 * 1_000;
 const loginWindowMs = 15 * 60 * 1_000;
 const maxLoginFailures = 5;
+const maxLoginAttemptRows = 10_000;
 
 type Credentials = Readonly<{ username: string; password: string }>;
 type SessionResult = Readonly<{ userId: string; username: string; csrfToken: string }>;
@@ -61,6 +62,12 @@ export function createWebAuth(db: Database.Database, csrfKey: string) {
     return { userId: user.id, username: user.username, sessionToken, csrfToken };
   };
   const currentAttempt = (clientKey: string): AttemptRow | undefined => db.prepare("SELECT failures,window_started_at,locked_until FROM web_login_attempts WHERE client_key=?").get(clientKey) as AttemptRow | undefined;
+  const pruneAttempts = (): void => {
+    const timestamp = now(), cutoff = new Date(Date.now() - loginWindowMs).toISOString();
+    db.prepare("DELETE FROM web_login_attempts WHERE updated_at<? AND (locked_until IS NULL OR locked_until<=?)").run(cutoff, timestamp);
+    db.prepare("DELETE FROM web_login_attempts WHERE client_key IN (SELECT client_key FROM web_login_attempts ORDER BY updated_at DESC,client_key DESC LIMIT -1 OFFSET ?)")
+      .run(maxLoginAttemptRows);
+  };
   const locked = (clientKey: string): boolean => {
     const attempt = currentAttempt(clientKey);
     return attempt?.locked_until !== null && attempt?.locked_until !== undefined && attempt.locked_until > now();
@@ -77,6 +84,7 @@ export function createWebAuth(db: Database.Database, csrfKey: string) {
   return Object.freeze({
     hasUsers: (): boolean => (db.prepare("SELECT 1 FROM web_users LIMIT 1").get() !== undefined),
     async registerFirstUser(input: Credentials): Promise<LoginResult> {
+      if (db.prepare("SELECT 1 FROM web_users LIMIT 1").get() !== undefined) throw new Error("REGISTRATION_CLOSED");
       const credentials = requireCredentials(input), encoded = await passwordHash(credentials.password), timestamp = now();
       return db.transaction(() => {
         if (db.prepare("SELECT 1 FROM web_users LIMIT 1").get() !== undefined) throw new Error("REGISTRATION_CLOSED");
@@ -92,13 +100,16 @@ export function createWebAuth(db: Database.Database, csrfKey: string) {
     },
     async login(input: Credentials, clientKey = "unknown"): Promise<LoginResult> {
       const credentials = requireCredentials(input);
-      if (locked(clientKey)) throw new Error("LOGIN_RATE_LIMITED");
       const user = db.prepare("SELECT id,username,password_hash FROM web_users WHERE username=? COLLATE NOCASE").get(credentials.username) as UserRow | undefined;
+      const attemptKey = `${clientKey}\0${user?.id ?? "<unknown>"}`;
+      pruneAttempts();
+      if (locked(attemptKey)) throw new Error("LOGIN_RATE_LIMITED");
       if (user === undefined || !(await passwordMatches(credentials.password, user.password_hash))) {
-        failedLogin(clientKey);
+        failedLogin(attemptKey);
+        pruneAttempts();
         throw new Error("INVALID_CREDENTIALS");
       }
-      clearFailures(clientKey);
+      clearFailures(attemptKey);
       return db.transaction(() => createSession(user)).immediate();
     },
     session(sessionToken: string | undefined): SessionResult | undefined {
@@ -106,7 +117,9 @@ export function createWebAuth(db: Database.Database, csrfKey: string) {
       const row = db.prepare("SELECT u.id,u.username,s.csrf_hash FROM web_sessions s JOIN web_users u ON u.id=s.user_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? LIMIT 1")
         .get(digest(sessionToken), now()) as { id: string; username: string; csrf_hash: string } | undefined;
       if (!row) return undefined;
-      return { userId: row.id, username: row.username, csrfToken: csrfFor(sessionToken) };
+      const csrfToken = csrfFor(sessionToken);
+      if (mismatch(Buffer.from(row.csrf_hash, "utf8"), Buffer.from(digest(csrfToken), "utf8"))) return undefined;
+      return { userId: row.id, username: row.username, csrfToken };
     },
     validateCsrf(sessionToken: string | undefined, csrfToken: string | undefined): boolean {
       if (!sessionToken || !csrfToken) return false;

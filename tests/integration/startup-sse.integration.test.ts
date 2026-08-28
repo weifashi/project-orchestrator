@@ -187,8 +187,12 @@ it('awaits SIGTERM shutdown and removes the accepting Agent socket before exit',
   db.prepare("INSERT INTO client_installations(id,client_type,adapter_version,capability_object_id,credential_hash,status,last_seen_at) VALUES('install','codex','1',?,?,'active',?)").run(capabilities.id,createHash('sha256').update(credential).digest('hex'),now);db.close();
   const webSessionSecretPath=join(directory,'web-session-secret');const adapterPath=join(directory,'adapter-token');writeFileSync(webSessionSecretPath,'web-session-secret');writeFileSync(adapterPath,credential);chmodSync(webSessionSecretPath,0o600);chmodSync(adapterPath,0o600);
   const socketPath=join(directory,'control.sock');
+  const operationSocketPath=join(directory,'operations.sock');
+  const operationChild=spawn(process.execPath,['packages/operation-executor/dist/main.js',operationSocketPath],{cwd:process.cwd(),stdio:['ignore','pipe','pipe']});
+  const operationDeadline=Date.now()+5_000;while(!existsSync(operationSocketPath)&&Date.now()<operationDeadline)await new Promise((resolve)=>setTimeout(resolve,20));
+  expect(existsSync(operationSocketPath)).toBe(true);
   const port=await availablePort();
-  const child=spawn(process.execPath,['apps/control-server/dist/main.js'],{cwd:process.cwd(),env:{...process.env,PROJECT_ORCHESTRATOR_DATA:directory,PROJECT_ORCHESTRATOR_DB:databasePath,PROJECT_ORCHESTRATOR_OBJECTS:join(directory,'objects'),PROJECT_ORCHESTRATOR_SOCKET:socketPath,PROJECT_ORCHESTRATOR_OPERATION_SOCKET:join(directory,'operations.sock'),PROJECT_ORCHESTRATOR_WEB_SESSION_SECRET_FILE:webSessionSecretPath,PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE:adapterPath,PROJECT_ORCHESTRATOR_PORT:String(port)},stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath,['apps/control-server/dist/main.js'],{cwd:process.cwd(),env:{...process.env,PROJECT_ORCHESTRATOR_DATA:directory,PROJECT_ORCHESTRATOR_DB:databasePath,PROJECT_ORCHESTRATOR_OBJECTS:join(directory,'objects'),PROJECT_ORCHESTRATOR_SOCKET:socketPath,PROJECT_ORCHESTRATOR_OPERATION_SOCKET:operationSocketPath,PROJECT_ORCHESTRATOR_WEB_SESSION_SECRET_FILE:webSessionSecretPath,PROJECT_ORCHESTRATOR_ADAPTER_CREDENTIAL_FILE:adapterPath,PROJECT_ORCHESTRATOR_PORT:String(port)},stdio:['ignore','pipe','pipe']});
   const deadline=Date.now()+5_000;while(!existsSync(socketPath)&&Date.now()<deadline)await new Promise((resolve)=>setTimeout(resolve,20));
   expect(existsSync(socketPath)).toBe(true);const adapter=connect(socketPath);adapter.setEncoding('utf8');await once(adapter,'connect');adapter.write(`${JSON.stringify({kind:'bootstrap',credential,channel:'agent',scope:'root',canonical_project_path:directory})}\n`);const [challengeChunk]=await once(adapter,'data') as [string];const challenge=JSON.parse(challengeChunk.trim()) as {challenge:string};adapter.write(`${JSON.stringify({kind:'bind_root_session',challenge:challenge.challenge,session_id:'root',proof:createHmac('sha256',credential).update(`${challenge.challenge}\0root\0${directory}`).digest('base64url')})}\n`);await once(adapter,'data');
   const origin=`http://127.0.0.1:${port}`;const cookie=await bootstrapCookie(origin,origin);
@@ -196,4 +200,8 @@ it('awaits SIGTERM shutdown and removes the accepting Agent socket before exit',
   child.kill('SIGTERM');const [code,signal]=await once(child,'exit') as [number|null,NodeJS.Signals|null];
   const closed=await Promise.race([pendingRead,new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error('SSE_NOT_CLOSED')),2_000))]);
   expect(closed.done).toBe(true);expect({code,signal}).toEqual({code:0,signal:null});expect(existsSync(socketPath)).toBe(false);
+  operationChild.kill('SIGTERM');
+  const [operationCode,operationSignal]=await once(operationChild,'exit') as [number|null,NodeJS.Signals|null];
+  expect({code:operationCode,signal:operationSignal}).toEqual({code:0,signal:null});
+  expect(existsSync(operationSocketPath)).toBe(false);
 });

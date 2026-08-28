@@ -14,6 +14,7 @@ export type ControlConfig = {
   adapterCredential: string;
   allowedOrigins: readonly string[];
   allowedHosts?: readonly string[];
+  lanOrigins: readonly string[];
   staticDirectory?: string;
   maxFrameBytes: number;
 };
@@ -76,11 +77,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ControlConfig 
   const webPort = Number(env["PROJECT_ORCHESTRATOR_PORT"] ?? 3847);
   if (!Number.isInteger(webPort) || webPort < 0 || webPort > 65_535) throw new Error("CONFIG_INVALID: web port");
   const allowedOrigins = parseOrigins(env["PROJECT_ORCHESTRATOR_ORIGINS"] ?? env["PROJECT_ORCHESTRATOR_ORIGIN"] ?? `http://127.0.0.1:${webPort}`);
-  const allowedHosts = (env["PROJECT_ORCHESTRATOR_ALLOWED_HOSTS"] ?? "127.0.0.1,localhost").split(",").map((value) => value.trim()).filter(Boolean);
+  const lanOrigins = lanAccess
+    ? parseOrigins(env["PROJECT_ORCHESTRATOR_LAN_ORIGINS"] ?? `http://127.0.0.1:${webPort},http://localhost:${webPort}`)
+    : Object.freeze([]);
+  const defaultHosts = ["127.0.0.1", "localhost", ...allowedOrigins, ...lanOrigins]
+    .map((value) => value.includes("://") ? new URL(value).hostname : value);
+  const allowedHosts = (env["PROJECT_ORCHESTRATOR_ALLOWED_HOSTS"] ?? [...new Set(defaultHosts)].join(",")).split(",").map((value) => value.trim()).filter(Boolean);
   if (!allowedHosts.length || allowedHosts.some((value) => value.includes("/") || value.includes(":"))) throw new Error("CONFIG_INVALID: allowed hosts");
   return {
     dataDirectory, databasePath: resolve(env["PROJECT_ORCHESTRATOR_DB"] ?? `${dataDirectory}/orchestrator.sqlite`), objectsPath: resolve(env["PROJECT_ORCHESTRATOR_OBJECTS"] ?? `${dataDirectory}/objects`), controlSocketPath, operationSocketPath,
-    webHost, webPort, webSessionSecret, adapterCredential, allowedOrigins, allowedHosts,
+    webHost, webPort, webSessionSecret, adapterCredential, allowedOrigins, allowedHosts, lanOrigins,
     ...(env["PROJECT_ORCHESTRATOR_WEB_STATIC"] === undefined ? {} : { staticDirectory: resolve(env["PROJECT_ORCHESTRATOR_WEB_STATIC"]) }), maxFrameBytes: 256 * 1024,
   };
 }

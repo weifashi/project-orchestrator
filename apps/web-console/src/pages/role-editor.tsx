@@ -112,6 +112,7 @@ export function RoleEditorPage() {
         </div>
       </div>
       <VersionBanner />
+      {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
       <div className="toolbar">
         <span role="status" aria-live="polite">
           {message}
@@ -149,9 +150,16 @@ export function RoleEditorPage() {
                 setBusy(true);
                 void api.roles
                   .resetBuiltin(id)
-                  .then(() => {
+                  .then(async () => {
+                    const [nextDraft, nextCatalog] = await Promise.all([
+                      api.roles.getDraft(id),
+                      api.roles.list(),
+                    ]);
+                    loaded.setData(nextDraft);
+                    setDraft(nextDraft);
+                    catalog.setData(nextCatalog);
+                    setStatus(nextCatalog.find((role) => role.id === id)?.status);
                     setMessage(t("roleResetBuiltin"));
-                    return loaded.setData(undefined);
                   })
                   .catch((error: unknown) =>
                     setMessage(

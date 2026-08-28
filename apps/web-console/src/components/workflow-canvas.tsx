@@ -48,11 +48,14 @@ const interactiveTarget = (target: EventTarget | null) => target instanceof HTML
 
 export function WorkflowCanvas({ envelope, roles, label, readonly = false, stageStates: stageStatesInput, onChange, onSelect }: Props) {
   const stageStates = stageStatesInput ?? emptyStageStates;
+  const hasSavedViewport = Boolean(envelope.data.canvas?.viewport_zoom && Number.isFinite(envelope.data.canvas.viewport_zoom));
   const { t } = useI18n();
   const [selected, setSelected] = useState<string>();
   const [selectedEdge, setSelectedEdge] = useState<string>();
   const [contextMenu, setContextMenu] = useState<ContextMenu>();
   const [paletteOpen, setPaletteOpen] = useState(false), [query, setQuery] = useState("");
+  const [canvasReady, setCanvasReady] = useState(hasSavedViewport);
+  const [flowReady, setFlowReady] = useState(false);
   const flow = useRef<ReactFlowInstance | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
   const livePositionsRef = useRef<Record<string, CanvasPosition>>({});
@@ -88,7 +91,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const edges = useMemo<Edge[]>(() => {
     const unique = new Set<string>();
     return envelope.data.edges.flatMap((edge, index) => {
-      const source = endpoint(edge.from), target = endpoint(edge.to), id = `${source}-${target}-${index}`;
+      const source = endpoint(edge.from), target = endpoint(edge.to), id = `${edge.from}-${edge.to}-${index}`;
       if (source === target || unique.has(`${source}-${target}`)) return [];
       unique.add(`${source}-${target}`);
       const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -141,27 +144,32 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
   const onMoveEnd: OnMoveEnd = (_, viewport) => { if (!readonly && onChange) onChange(updateCanvasViewport(envelope, viewport)); };
   const filteredRoles = roles.filter((role) => role.status === "active" && role.current_version_id && `${label(role.slug)} ${role.name} ${role.slug}`.toLowerCase().includes(query.toLowerCase()));
   const groups = [...new Set(filteredRoles.map((role) => category(role.slug)))];
-  const hasSavedViewport = Boolean(envelope.data.canvas?.viewport_zoom && Number.isFinite(envelope.data.canvas.viewport_zoom));
-  const initialHasSavedViewport = useRef(hasSavedViewport);
+  const initialFitDone = useRef(hasSavedViewport);
   const fitCanvas = useCallback(() => { void flow.current?.fitView({ padding: 0.18, duration: 180 }); }, []);
   useEffect(() => {
-    if (initialHasSavedViewport.current || !nodes.length || typeof ResizeObserver === "undefined") return;
+    if (initialFitDone.current || !flowReady || !nodes.length || typeof ResizeObserver === "undefined") return;
     const target = stageRef.current;
     if (!target) return;
     let frame = 0;
     const fitWhenSized = () => {
       if (!flow.current || target.clientWidth < 80 || target.clientHeight < 80) return;
+      initialFitDone.current = true;
+      observer.disconnect();
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(fitCanvas);
+      frame = requestAnimationFrame(() => {
+        const fitting = flow.current?.fitView({ padding: 0.18, duration: 0 });
+        if (fitting) void fitting.finally(() => setCanvasReady(true));
+        else setCanvasReady(true);
+      });
     };
     const observer = new ResizeObserver(fitWhenSized);
     observer.observe(target);
     fitWhenSized();
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
-  }, [fitCanvas, nodes.length]);
+  }, [flowReady, nodes.length]);
   useEffect(() => { if (selected && !envelope.data.stages.some((stage) => stage.key === selected)) select(undefined); }, [envelope.data.stages, select, selected]);
   return <div className={`workflow-canvas-layout ${readonly ? "is-readonly" : ""}`}>
-    <section ref={stageRef} className="canvas-stage n8n-canvas" aria-label={readonly ? t("runCanvas") : t("workflowEditor")} tabIndex={0} onKeyDown={(event) => {
+    <section ref={stageRef} className="canvas-stage n8n-canvas" data-canvas-ready={canvasReady} aria-label={readonly ? t("runCanvas") : t("workflowEditor")} tabIndex={0} onKeyDown={(event) => {
       if (interactiveTarget(event.target)) return;
       if (event.key === "Escape") { event.preventDefault(); setPaletteOpen(false); setContextMenu(undefined); setSelectedEdge(undefined); select(undefined); }
       if (!readonly && event.key.toLowerCase() === "f") { event.preventDefault(); void flow.current?.fitView({ padding: 0.16, duration: 180 }); }
@@ -171,7 +179,7 @@ export function WorkflowCanvas({ envelope, roles, label, readonly = false, stage
       }
     }}>
       {!readonly && hasAuthoredNodes && <div className="canvas-floating-actions"><button className="button primary" type="button" onClick={() => setPaletteOpen(true)}>{t("addNode")}</button><button className="button ghost" type="button" onClick={() => onChange?.(autoLayout(envelope))}>{t("autoLayout")}</button><button className="button ghost" type="button" onClick={fitCanvas}>{t("fitCanvas")}</button></div>}
-      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView={false} defaultViewport={{ x: envelope.data.canvas?.viewport_x ?? 0, y: envelope.data.canvas?.viewport_y ?? 0, zoom: envelope.data.canvas?.viewport_zoom ?? 1 }} onInit={(instance) => { flow.current = instance; if (!initialHasSavedViewport.current && nodes.length) requestAnimationFrame(fitCanvas); }} nodesDraggable={!readonly} nodesConnectable={!readonly} elementsSelectable onNodeClick={(_, node) => { setContextMenu(undefined); setSelectedEdge(undefined); if (node.type === "stage") select(node.id); }} onEdgeClick={(_, edge) => { setContextMenu(undefined); select(undefined); setSelectedEdge(edge.id); }} onNodeContextMenu={(event, node) => { if (node.type === "stage") openContextMenu(event, "node", node.id, Boolean((node.data as NodeData).stage.mandatory_gate)); }} onEdgeContextMenu={(event, edge) => openContextMenu(event, "edge", edge.id)} onPaneClick={() => { setContextMenu(undefined); select(undefined); setSelectedEdge(undefined); }} onPaneContextMenu={(event) => { event.preventDefault(); setContextMenu(undefined); }} onNodesChange={writePositions} onNodesDelete={(deleted) => { if (!readonly) onChange?.(removeGraphSelection(envelope, deleted.map((node) => node.id), [])); }} onEdgesDelete={(deleted) => { if (!readonly) { onChange?.(removeGraphSelection(envelope, [], deleted.map((edge) => edge.id))); setSelectedEdge(undefined); } }} onConnect={onConnect} onMoveEnd={onMoveEnd} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("application/project-orchestrator-role"); const role = roles.find((item) => item.id === id); if (role) addRole(role, flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })); }} onDragOver={(event) => { if (!readonly) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}>
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView={false} defaultViewport={{ x: envelope.data.canvas?.viewport_x ?? 0, y: envelope.data.canvas?.viewport_y ?? 0, zoom: envelope.data.canvas?.viewport_zoom ?? 1 }} onInit={(instance) => { flow.current = instance; setFlowReady(true); }} nodesDraggable={!readonly} nodesConnectable={!readonly} elementsSelectable onNodeClick={(_, node) => { setContextMenu(undefined); setSelectedEdge(undefined); if (node.type === "stage") select(node.id); }} onEdgeClick={(_, edge) => { setContextMenu(undefined); select(undefined); setSelectedEdge(edge.id); }} onNodeContextMenu={(event, node) => { if (node.type === "stage") openContextMenu(event, "node", node.id, Boolean((node.data as NodeData).stage.mandatory_gate)); }} onEdgeContextMenu={(event, edge) => openContextMenu(event, "edge", edge.id)} onPaneClick={() => { setContextMenu(undefined); select(undefined); setSelectedEdge(undefined); }} onPaneContextMenu={(event) => { event.preventDefault(); setContextMenu(undefined); }} onNodesChange={writePositions} onNodesDelete={(deleted) => { if (!readonly) onChange?.(removeGraphSelection(envelope, deleted.map((node) => node.id), [])); }} onEdgesDelete={(deleted) => { if (!readonly) { onChange?.(removeGraphSelection(envelope, [], deleted.map((edge) => edge.id))); setSelectedEdge(undefined); } }} onConnect={onConnect} onMoveEnd={onMoveEnd} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData("application/project-orchestrator-role"); const role = roles.find((item) => item.id === id); if (role) addRole(role, flow.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })); }} onDragOver={(event) => { if (!readonly) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}>
         <Background gap={18} size={1} /><Controls showInteractive={false} />
       </ReactFlow>
       {contextMenu && !readonly && <div className="canvas-context-menu" role="menu" style={{ left: contextMenu.x, top: contextMenu.y }} onContextMenu={(event) => event.preventDefault()} onPointerDown={(event) => event.stopPropagation()}>

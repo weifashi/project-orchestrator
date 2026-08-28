@@ -2,14 +2,15 @@ import { spawn } from 'node:child_process';
 import { chmodSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import type { DriverRegistry } from './driver-registry.js';
-import type { OperationRequest, OperationResult } from './types.js';
+import type { OperationHelperRequest, OperationRequest, OperationResult } from './types.js';
 const MAX_OUTPUT = 64 * 1024;
 const MAX_FRAME = 256 * 1024;
 const redact = (value: string): string => value.replace(/(token|secret|password|credential)\s*[=:]\s*\S+/gi, '$1=[REDACTED]');
 
-function operationRequest(value: unknown): OperationRequest {
+function operationRequest(value: unknown): OperationHelperRequest {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_OPERATION_REQUEST');
   const request = value as Record<string, unknown>;
+  if (request['kind'] === 'ping' && Object.keys(request).length === 1) return { kind: 'ping' };
   if (request['kind'] === 'execute') {
     const keys = Object.keys(request).sort();
     if (JSON.stringify(keys) !== JSON.stringify(['actionType', 'kind', 'parameters', 'targetFingerprint'])
@@ -82,11 +83,15 @@ export function startOperationServer(socketPath: string, registry: DriverRegistr
       let newline: number;
       while ((newline = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
-        let request: OperationRequest;
+        let request: OperationHelperRequest;
         try {
           request = operationRequest(JSON.parse(line) as unknown);
         } catch (error) {
           socket.write(`${JSON.stringify({ error: error instanceof Error ? error.message : 'invalid request' })}\n`); continue;
+        }
+        if (request.kind === 'ping') {
+          socket.write(`${JSON.stringify({ ready: true })}\n`);
+          continue;
         }
         void executeOperation(registry, request).then(
           (result) => socket.write(`${JSON.stringify(result)}\n`),
@@ -95,5 +100,6 @@ export function startOperationServer(socketPath: string, registry: DriverRegistr
       }
     });
   });
+  server.once('close', () => rmSync(socketPath, { force: true }));
   return new Promise((resolve, reject) => server.once('error', reject).listen(socketPath, () => { chmodSync(socketPath, 0o600); resolve(server); }));
 }

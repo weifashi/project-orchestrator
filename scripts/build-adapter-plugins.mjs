@@ -6,6 +6,18 @@ import { validateAllSkills } from './validate-skills.mjs';
 
 const clients = ['codex', 'claude'];
 const sourceRoot = resolve('skills');
+const packageVersion = JSON.parse(await readFile(resolve('package.json'), 'utf8')).version;
+
+async function syncVersion(path) {
+  const value = JSON.parse(await readFile(path, 'utf8'));
+  value.version = packageVersion;
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function assertVersion(path) {
+  const value = JSON.parse(await readFile(path, 'utf8'));
+  if (value.version !== packageVersion) throw new Error(`${relative(resolve('.'), path)} version is stale`);
+}
 
 async function files(root, current = root) {
   const entries = await readdir(current, { withFileTypes: true });
@@ -41,6 +53,12 @@ async function build() {
     for (const slug of await readdir(sourceRoot)) await cp(resolve(sourceRoot, slug), resolve(target, slug), { recursive: true });
     await writeFile(resolve(root, 'generated-manifest.json'), `${JSON.stringify(expected, null, 2)}\n`);
   }
+  await syncVersion(resolve('adapters/codex/project-orchestrator/.codex-plugin/plugin.json'));
+  await syncVersion(resolve('adapters/claude/project-orchestrator/.claude-plugin/plugin.json'));
+  const marketplacePath = resolve('distribution/claude-marketplace/marketplace.json');
+  const marketplace = JSON.parse(await readFile(marketplacePath, 'utf8'));
+  marketplace.plugins[0].version = packageVersion;
+  await writeFile(marketplacePath, `${JSON.stringify(marketplace, null, 2)}\n`);
   process.stdout.write(`Copied ${Object.keys(expected.files).length} Skill files to Codex and Claude plugins.\n`);
 }
 
@@ -55,6 +73,10 @@ async function check() {
       throw new Error(`${client} generated Skill tree is stale`);
     }
   }
+  await assertVersion(resolve('adapters/codex/project-orchestrator/.codex-plugin/plugin.json'));
+  await assertVersion(resolve('adapters/claude/project-orchestrator/.claude-plugin/plugin.json'));
+  const marketplace = JSON.parse(await readFile(resolve('distribution/claude-marketplace/marketplace.json'), 'utf8'));
+  if (marketplace.plugins?.[0]?.version !== packageVersion) throw new Error('Claude marketplace version is stale');
   process.stdout.write('Generated Codex and Claude Skill trees are deterministic and current.\n');
 }
 

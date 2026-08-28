@@ -129,23 +129,77 @@ it("requires an account only on public hosts while allowing trusted LAN access",
   db.prepare("INSERT INTO workflow_templates(id,slug,name,task_type,status,created_at,updated_at) VALUES('lan','lan','LAN','feature','active',?,?)")
     .run(now, now);
   const publicOrigin = "https://3847--main--wfs--weifashi.coder.example";
+  const lanOrigin = "http://192.168.1.20:3847";
   const app = buildWebListener({
     db,
     content: new ContentStore(join(dir, "objects"), db),
     sessionSecret: "csrf",
     allowedOrigins: [publicOrigin],
-    allowedHosts: ["127.0.0.1", "3847--main--wfs--weifashi.coder.example"],
+    allowedHosts: ["127.0.0.1", "192.168.1.20", "3847--main--wfs--weifashi.coder.example"],
+    lanOrigins: [lanOrigin],
   });
 
   expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "3847--main--wfs--weifashi.coder.example" } })).statusCode).toBe(403);
-  const lan = { host: "127.0.0.1" };
+  const lan = { host: "192.168.1.20" };
   expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: lan })).statusCode).toBe(200);
-  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "192.168.1.20" } })).statusCode).toBe(200);
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "192.168.1.20" }, remoteAddress: "192.168.1.23" })).statusCode).toBe(200);
   expect((await app.inject({ method: "GET", url: "/api/read/session", headers: lan })).json()).toEqual({ csrf_token: "lan-bypass" });
   expect((await app.inject({
     method: "POST", url: "/api/config/workflow-drafts/lan", headers: lan,
     payload: { expected_revision: 0, envelope: { draft: true } },
+  })).statusCode).toBe(403);
+  expect((await app.inject({
+    method: "POST", url: "/api/config/workflow-drafts/lan", headers: { ...lan, origin: lanOrigin },
+    payload: { expected_revision: 0, envelope: { draft: true } },
   })).statusCode).toBe(200);
+
+  await app.close();
+  db.close();
+});
+
+it("keeps LAN access account-free only for explicitly configured hosts and origins", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "web-lan-boundary-"));
+  dirs.push(dir);
+  const db = openDatabase(join(dir, "db"));
+  migrate(db);
+  const publicOrigin = "https://3847--main--wfs--weifashi.coder.example";
+  const lanOrigin = "http://192.168.1.20:3847";
+  const app = buildWebListener({
+    db,
+    content: new ContentStore(join(dir, "objects"), db),
+    sessionSecret: "csrf",
+    allowedOrigins: [publicOrigin],
+    allowedHosts: ["3847--main--wfs--weifashi.coder.example", "192.168.1.20"],
+    lanOrigins: [lanOrigin],
+  });
+  const source = "192.168.1.23";
+  const roleBody = {
+    slug: "release-notes",
+    display_name: "Release Notes",
+    responsibilities: ["Summarise the release"],
+    requested_capabilities: ["read-workspace"],
+  };
+
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "evil.example", origin: "https://evil.example" }, remoteAddress: source })).statusCode).toBe(403);
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "3847--main--wfs--weifashi.coder.example" }, remoteAddress: source })).statusCode).toBe(403);
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "192.168.1.20" }, remoteAddress: source })).statusCode).toBe(200);
+  expect((await app.inject({ method: "POST", url: "/api/config/roles", headers: { host: "192.168.1.20" }, payload: roleBody, remoteAddress: source })).statusCode).toBe(403);
+  expect((await app.inject({ method: "POST", url: "/api/config/roles", headers: { host: "192.168.1.20", origin: "https://evil.example" }, payload: roleBody, remoteAddress: source })).statusCode).toBe(403);
+  expect(db.prepare("SELECT COUNT(*) AS count FROM roles WHERE slug='release-notes'").get()).toEqual({ count: 0 });
+
+  const created = await app.inject({ method: "POST", url: "/api/config/roles", headers: { host: "192.168.1.20", origin: lanOrigin }, payload: roleBody, remoteAddress: source });
+  expect(created.statusCode).toBe(200);
+  const roleId = created.json().roleId as string;
+  const removed = await app.inject({ method: "DELETE", url: `/api/config/roles/${roleId}`, headers: { host: "192.168.1.20", origin: lanOrigin }, payload: {}, remoteAddress: source });
+  expect(removed.statusCode).toBe(200);
+  expect(db.prepare("SELECT removed_at FROM roles WHERE id=?").get(roleId)).toEqual({ removed_at: expect.any(String) });
+  const restored = await app.inject({ method: "POST", url: `/api/config/roles/${roleId}/restore`, headers: { host: "192.168.1.20", origin: lanOrigin }, payload: {}, remoteAddress: source });
+  expect(restored.statusCode).toBe(200);
+  expect(db.prepare("SELECT removed_at FROM roles WHERE id=?").get(roleId)).toEqual({ removed_at: null });
+
+  expect((await app.inject({ method: "GET", url: "/api/read/session", headers: { host: "evil.example" }, remoteAddress: source })).statusCode).toBe(403);
+  expect((await app.inject({ method: "GET", url: "/api/read/session", headers: { host: "192.168.1.20" }, remoteAddress: source })).json()).toEqual({ csrf_token: "lan-bypass" });
+  expect((await app.inject({ method: "GET", url: "/api/read/system/status", headers: { host: "192.168.1.20", "x-forwarded-for": "127.0.0.1" }, remoteAddress: "203.0.113.42" })).statusCode).toBe(403);
 
   await app.close();
   db.close();

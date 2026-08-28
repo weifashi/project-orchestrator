@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   captureGitWorkspaceSnapshot,
   IpcClient,
   loadAdapterCredential,
 } from '@project-orchestrator/adapter-core';
+import { openDatabase } from '@project-orchestrator/sqlite-store';
 import { loadConfig, rotateWebSessionSecret } from "./config.js";
 import { initializeLocalState, inspectLocalState } from './distribution.js';
+import { OperationHelperClient } from './ipc/operation-helper-client.js';
 import { startControlServer } from "./runtime.js";
+import { databaseIdentity, runtimeVersion } from "./version.js";
 
 const command = process.argv[2];
 const dataDirectory = resolve(process.env['PROJECT_ORCHESTRATOR_DATA'] ?? `${process.env['HOME'] ?? '.'}/.project-orchestrator`);
@@ -86,18 +89,39 @@ if (command === "--rotate-web-session-secret") {
 } else if (command === 'initialize') {
   initializeLocalState(stateInput);
   process.stdout.write('Local database, built-in workflows, and client installations initialized.\n');
+} else if (command === 'backup') {
+  if (!existsSync(stateInput.databasePath)) throw new Error('NOT_FOUND: database');
+  const output = resolve(requireOption('--output'));
+  const db = openDatabase(stateInput.databasePath);
+  try { await db.backup(output); } finally { db.close(); }
+  process.stdout.write(`Backup created: ${output}\n`);
+} else if (command === 'verify-database') {
+  const path = resolve(requireOption('--path'));
+  if (!existsSync(path)) throw new Error('NOT_FOUND: database');
+  const db = openDatabase(path);
+  try {
+    if (db.pragma('integrity_check', { simple: true }) !== 'ok') throw new Error('DATABASE_INTEGRITY_CHECK_FAILED');
+  } finally {
+    db.close();
+  }
+  process.stdout.write('Database integrity verified.\n');
 } else if (command === 'version' || command === '--version') {
-  const versionFile = process.env['PROJECT_ORCHESTRATOR_VERSION_FILE'];
-  process.stdout.write(`${versionFile !== undefined && existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '0.1.5'}\n`);
+  process.stdout.write(`${runtimeVersion()}\n`);
 } else if (command === 'url') {
   process.stdout.write(`${loadConfig().allowedOrigins[0]}\n`);
+} else if (command === 'operations-ready') {
+  const helper = new OperationHelperClient(resolve(process.env['PROJECT_ORCHESTRATOR_OPERATION_SOCKET'] ?? `${dataDirectory}/runtime/operations.sock`), 1_000);
+  await helper.ping();
+  process.stdout.write('Operation helper ready.\n');
 } else if (command === 'doctor') {
   const state = inspectLocalState(stateInput);
   let service = false;
   try {
     const config = loadConfig();
     const response = await fetch(`http://127.0.0.1:${config.webPort}/health`, { signal: AbortSignal.timeout(2_000) });
-    service = response.ok && (await response.json() as { ok?: boolean }).ok === true;
+    const health = await response.json() as { ok?: boolean; version?: string; database_id?: string; operations_ready?: boolean };
+    service = response.ok && health.ok === true && health.version === runtimeVersion()
+      && health.database_id === databaseIdentity(stateInput.databasePath) && health.operations_ready === true;
   } catch {
     // A stopped listener is reported as a boolean, not as a credential-bearing exception.
   }

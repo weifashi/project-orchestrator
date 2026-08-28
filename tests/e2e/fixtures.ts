@@ -232,6 +232,10 @@ export async function mockApi(page: Page) {
 export async function bootstrap(page: Page) {
   await page.goto("/bootstrap");
   await page.evaluate(() => window.localStorage.setItem("po-locale", "zh-CN"));
+  if (await page.getByLabel("账号名").count() === 0) {
+    await page.goto("/");
+    return;
+  }
   await page.getByLabel("账号名").fill("owner");
   await page.getByLabel("密码").fill("twelve-char-password");
   await Promise.all([

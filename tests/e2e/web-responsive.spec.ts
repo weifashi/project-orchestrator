@@ -72,3 +72,24 @@ test("long role directories scroll inside the application shell", async ({ brows
   expect(size.main).toBeGreaterThanOrEqual(size.mainViewport);
   await page.close();
 });
+
+test("mobile header controls stay inside the header and never overlap navigation", async ({ browser }) => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 900 } });
+  await mockApi(page);
+  await page.goto("/workflows/workflow-1");
+  const bounds = await page.evaluate(() => {
+    const header = document.querySelector<HTMLElement>(".topbar")!;
+    const sidebar = document.querySelector<HTMLElement>(".sidebar")!;
+    const headerRect = header.getBoundingClientRect();
+    const sidebarRect = sidebar.getBoundingClientRect();
+    return {
+      headerClientHeight: header.clientHeight,
+      headerScrollHeight: header.scrollHeight,
+      headerBottom: headerRect.bottom,
+      sidebarTop: sidebarRect.top,
+    };
+  });
+  expect(bounds.headerScrollHeight).toBeLessThanOrEqual(bounds.headerClientHeight);
+  expect(bounds.headerBottom).toBeLessThanOrEqual(bounds.sidebarTop + 1);
+  await page.close();
+});

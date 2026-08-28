@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useApi } from "../api/context";
 import { subscribeToRunEvents } from "../api/events";
@@ -27,28 +27,57 @@ export function RunDetailPage() {
   const { t, locale } = useI18n();
   const { id = "" } = useParams(),
     api = useApi(),
-    { data, error } = useLoad(() => api.runs.get(id), [api, id]);
+    { data, error, setData } = useLoad(() => api.runs.get(id), [api, id]);
   const [tab, setTab] = useState<(typeof tabs)[number]>("overview"),
     [live, setLive] = useState<RunEvent[]>([]),
-    [selectedStage, setSelectedStage] = useState<string>();
+    [selectedStage, setSelectedStage] = useState<string>(),
+    [liveRefreshError, setLiveRefreshError] = useState(false);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined), refreshSequence = useRef(0);
+  const refreshSnapshot = useCallback((delay = 100) => {
+    const sequence = ++refreshSequence.current;
+    if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      void api.runs.get(id).then((next) => {
+        if (sequence === refreshSequence.current) {
+          setData(next);
+          setLiveRefreshError(false);
+        }
+      }, () => {
+        if (sequence === refreshSequence.current) setLiveRefreshError(true);
+      });
+    }, delay);
+  }, [api, id, setData]);
   const workflow = useLoad(
     () => data ? api.workflows.getVersion(data.workflow_version_id) : Promise.resolve(undefined),
     [api, data?.workflow_version_id],
   );
-  useEffect(
-    () =>
-      subscribeToRunEvents({
+  useEffect(() => {
+    setLive([]);
+    setSelectedStage(undefined);
+    setLiveRefreshError(false);
+    refreshSequence.current += 1;
+    const stop = subscribeToRunEvents({
         api,
         runId: id,
-        onEvent: (event) =>
+        onEvent: (event) => {
           setLive((current) =>
             current.some((e) => e.sequence_number === event.sequence_number)
               ? current
               : [...current, event],
-          ),
-      }),
-    [api, id],
-  );
+          );
+          refreshSnapshot();
+        },
+      });
+    return () => {
+      stop();
+      if (refreshTimer.current !== undefined) clearTimeout(refreshTimer.current);
+    };
+  }, [api, id, refreshSnapshot]);
+  useEffect(() => {
+    if (!data || ["completed", "failed", "interrupted", "cancelled"].includes(data.status)) return;
+    const timer = setInterval(() => refreshSnapshot(0), 5_000);
+    return () => clearInterval(timer);
+  }, [data?.status, refreshSnapshot]);
   if (error)
     return (
       <div className="page">
@@ -112,6 +141,7 @@ export function RunDetailPage() {
           {t("sideEffectUnknown")}
         </div>
       )}
+      {liveRefreshError ? <div className="notice danger">{t("liveRefreshDelayed")}</div> : null}
       <div className="tabs" role="tablist" aria-label={t("runDetail")}>
         {tabs.map((name) => (
           <button
@@ -127,7 +157,7 @@ export function RunDetailPage() {
       </div>
       {selectedStage && <CanvasDrawer title={t("nodeSettings")} onClose={() => setSelectedStage(undefined)} className="run-node-inspector">
         <p className="muted">{t(selectedStage)}</p>
-        <p><strong>{t("status")}</strong> · {value(data.stages.find((stage) => value(stage, "stage_key") === selectedStage) ?? {}, "status")}</p>
+        <p><strong>{t("status")}</strong> · {t(String(value(data.stages.find((stage) => value(stage, "stage_key") === selectedStage) ?? {}, "status")))}</p>
         <p><strong>{t("iteration")}</strong> · {value(data.stages.find((stage) => value(stage, "stage_key") === selectedStage) ?? {}, "iteration_number")}</p>
         {data.status === "waiting_for_user" ? <p className="notice">{t("confirmInSession")}</p> : null}
         {data.status === "failed" ? <p className="notice danger">{t("retryInSession")}</p> : null}
@@ -247,7 +277,7 @@ export function RunDetailPage() {
                             href={api.artifacts.downloadUrl(item.id)}
                             download
                           >
-                            下载
+                            {t("download")}
                           </a>
                         </td>
                       </tr>
@@ -299,7 +329,7 @@ export function RunDetailPage() {
                       href={api.artifacts.downloadUrl(a.id)}
                       download
                     >
-                      下载证据
+                      {t("downloadEvidence")}
                     </a>
                   </div>
                 ))

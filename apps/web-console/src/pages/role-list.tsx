@@ -110,7 +110,7 @@ export function RoleListPage() {
     <p role="status" aria-live="polite" className="muted">{message}</p>
     {creating && <CreateRoleForm busy={busy} onCancel={() => setCreating(false)}
       onSubmit={(input) => act(api.roles.create(input), t("roleCreated"))} />}
-    {error ? <ErrorPanel error={error} /> : <div className="grid">
+    {error ? <ErrorPanel error={error} /> : data === undefined ? <p className="muted" role="status">{t("loading")}</p> : <div className="grid">
       {present.length ? present.map(card) : <EmptyState />}
       <section className="card span-12">
         <details>

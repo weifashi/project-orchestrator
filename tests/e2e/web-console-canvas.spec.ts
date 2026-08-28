@@ -93,10 +93,32 @@ test("a selected connection can be deleted with the Delete key", async ({ page }
   await mockApi(page);
   await page.goto("/workflows/workflow-1");
 
-  await page.locator(".react-flow__edge").first().click();
+  await expect(page.locator('.canvas-stage[data-canvas-ready="true"]')).toBeVisible();
+  const point = await page.locator(".react-flow__edge-interaction").first().evaluate((element) => {
+    const path = element as SVGPathElement, matrix = path.getScreenCTM();
+    const midpoint = path.getPointAtLength(path.getTotalLength() / 2);
+    if (!matrix) throw new Error("edge has no screen transform");
+    return { x: midpoint.x * matrix.a + midpoint.y * matrix.c + matrix.e, y: midpoint.x * matrix.b + midpoint.y * matrix.d + matrix.f };
+  });
+  await page.mouse.click(point.x, point.y);
   await expect(page.locator(".react-flow__edge.edge-selected")).toHaveCount(1);
   await page.locator(".canvas-stage").focus();
   await page.keyboard.press("Delete");
 
   await expect(page.locator(".react-flow__edge")).toHaveCount(0);
+});
+
+test("a canvas group can be created, expanded, and collapsed again from the node inspector", async ({ page }) => {
+  guardNetwork(page);
+  await mockApi(page);
+  await page.goto("/workflows/workflow-1");
+
+  await page.locator(".react-flow__node", { hasText: "开发实现" }).click();
+  await page.getByRole("button", { name: /Create group|建立分组/ }).click();
+  await expect(page.locator(".workflow-group-node")).toHaveCount(1);
+  await page.locator(".workflow-group-node").click();
+  await expect(page.locator(".workflow-group-node")).toHaveCount(0);
+  await page.locator(".react-flow__node", { hasText: "开发实现" }).click();
+  await page.getByRole("button", { name: /Collapse group|折叠分组/ }).click();
+  await expect(page.locator(".workflow-group-node")).toHaveCount(1);
 });

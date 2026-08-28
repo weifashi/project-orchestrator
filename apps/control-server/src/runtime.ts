@@ -20,6 +20,7 @@ import { closeAgentListener, startAgentListener } from './ipc/agent-listener.js'
 import { createControlDispatcher } from './ipc/control-dispatcher.js';
 import { OperationHelperClient } from './ipc/operation-helper-client.js';
 import { createCredentialAuthenticator } from './ipc/principal.js';
+import { databaseIdentity, runtimeVersion } from './version.js';
 
 export type ControlRuntime = Readonly<{
   db: Database.Database;
@@ -113,6 +114,13 @@ export async function startControlServer(config: ControlConfig = loadConfig()): 
     db.close();
     throw error;
   }
+  const operationHelper = new OperationHelperClient(config.operationSocketPath);
+  try {
+    await operationHelper.ping();
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   migrate(db);
   const content = new ContentStore(config.objectsPath, db);
   for (const row of db.prepare('SELECT id FROM content_objects').all() as Array<{ id: string }>) content.verify(row.id);
@@ -121,7 +129,7 @@ export async function startControlServer(config: ControlConfig = loadConfig()): 
   const runs = new RunService(db, content, leases);
   const confirmations = new ConfirmationService(db, undefined, content);
   const operations = new OperationService(
-    db, content, leases, confirmations, new OperationHelperClient(config.operationSocketPath),
+    db, content, leases, confirmations, operationHelper,
   );
   const dispatcher = createControlDispatcher({ db, runs, leases, confirmations, operations });
   const agent = await startAgentListener({
@@ -132,9 +140,16 @@ export async function startControlServer(config: ControlConfig = loadConfig()): 
     submitConfirmation: dispatcher.submitConfirmation,
   });
   const web = buildWebListener({
-    db, content, sessionSecret: config.webSessionSecret, allowedOrigins: config.allowedOrigins,
+    db, content, sessionSecret: config.webSessionSecret, allowedOrigins: config.allowedOrigins, lanOrigins: config.lanOrigins,
     ...(config.allowedHosts === undefined ? {} : { allowedHosts: config.allowedHosts }),
     ...(config.staticDirectory === undefined ? {} : { staticDirectory: config.staticDirectory }),
+    healthIdentity: {
+      version: runtimeVersion(),
+      databaseId: databaseIdentity(config.databasePath),
+      operationsReady: async () => {
+        try { await operationHelper.ping(); return true; } catch { return false; }
+      },
+    },
   });
   try {
     await web.listen({ host: config.webHost, port: config.webPort });

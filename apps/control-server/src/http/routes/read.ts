@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type Database from "better-sqlite3";
 import type { ContentStore } from "@project-orchestrator/content-store";
 import { BUILTIN_ROLE_SLUGS } from "@project-orchestrator/orchestrator-service";
+import { runtimeVersion } from "../../version.js";
 
 const builtinSlugs = new Set<string>(BUILTIN_ROLE_SLUGS);
 
@@ -428,7 +429,7 @@ export function registerReadRoutes(
     });
     return {
       status: casStatus === "degraded" ? "degraded" : "ok",
-      version: "0.0.0",
+      version: runtimeVersion(),
       database_path: database,
       cas_status: casStatus,
       cas_checked_objects: checkedObjects,

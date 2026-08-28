@@ -65,7 +65,7 @@ export const updateCanvasViewport = (envelope: WorkflowVersionEnvelope, viewport
 export const createCanvasGroup = (envelope: WorkflowVersionEnvelope, id: string, label: string, stageKeys: string[]) => {
   const valid = [...new Set(stageKeys)].filter((key) => envelope.data.stages.some((stage) => stage.key === key));
   if (!id.trim() || !label.trim() || !valid.length || canvas(envelope).groups.some((group) => group.id === id)) return envelope;
-  return withCanvas(envelope, { groups: [...canvas(envelope).groups, { id, label, stage_keys: valid, collapsed: false }] });
+  return withCanvas(envelope, { groups: [...canvas(envelope).groups, { id, label, stage_keys: valid, collapsed: true }] });
 };
 
 export const toggleCanvasGroup = (envelope: WorkflowVersionEnvelope, id: string) => {

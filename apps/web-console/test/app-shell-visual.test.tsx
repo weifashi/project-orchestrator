@@ -21,4 +21,6 @@ it("renders a polished local-console shell with semantic text navigation", () =>
   expect(screen.getByLabelText("总览")).toHaveClass("sidebar");
   expect(screen.getByRole("link", { name: "总览" })).toBeInTheDocument();
   expect(screen.getByText("网页不执行任务，只观察与编排模板")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "退出登录" })).toHaveAttribute("type", "submit");
+  expect(screen.getByRole("button", { name: "退出登录" }).closest("form")).toHaveAttribute("action", "/logout");
 });

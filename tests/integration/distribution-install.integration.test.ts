@@ -70,12 +70,14 @@ it('serves health through the configured Coder host while the app remains loopba
   const app = buildWebListener({
     db, content, sessionSecret: 'csrf', allowedOrigins: [origin],
     allowedHosts: ['127.0.0.1', 'localhost', '3847--main--wfs--weifashi.coder.example'],
+    healthIdentity: { version: '0.1.37', databaseId: 'db-identity', operationsReady: async () => true },
   });
   const health = await app.inject({
     method: 'GET', url: '/health', headers: { host: '3847--main--wfs--weifashi.coder.example' },
   });
   expect(health.statusCode).toBe(200);
-  expect(health.json()).toEqual({ ok: true });
+  expect(health.json()).toEqual({ ok: true, version: '0.1.37', database_id: 'db-identity', operations_ready: true });
+  expect(health.body).not.toContain(directory);
   const rejected = await app.inject({ method: 'GET', url: '/health', headers: { host: 'evil.example' }, remoteAddress: '203.0.113.42' });
   expect(rejected.statusCode).toBe(403);
   await app.close();

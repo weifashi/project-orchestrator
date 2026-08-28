@@ -29,6 +29,9 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   expect(registration.body).not.toContain("Web token");
   expect(registration.body).not.toContain('name="password" type="password" autocomplete="new-password" required minlength');
   expect(registration.body).not.toContain('name="confirm_password" type="password" autocomplete="new-password" required minlength');
+  const englishRegistration = await app.inject({ method: "GET", url: "/bootstrap?lang=en", headers: { host, "accept-language": "zh-CN" } });
+  expect(englishRegistration.body).toContain("Create administrator account");
+  expect(englishRegistration.body).toContain('lang="en"');
   const cspNonce = String(registration.headers["content-security-policy"]).match(/style-src 'self' 'nonce-([A-Za-z0-9_-]+)'/)?.[1];
   const styleNonce = registration.body.match(/<style nonce="([A-Za-z0-9_-]+)">/)?.[1];
   expect(cspNonce).toBe(styleNonce);
@@ -52,6 +55,9 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   const page = await app.inject({ method: "GET", url: "/runs/example", headers: { host, cookie } });
   expect(page.statusCode).toBe(200);
   expect(page.body).toContain('__PO_CSRF_TOKEN__');
+  const authenticatedBootstrap = await app.inject({ method: "GET", url: "/bootstrap", headers: { host, cookie } });
+  expect(authenticatedBootstrap.statusCode).toBe(302);
+  expect(authenticatedBootstrap.headers.location).toBe("/");
   const session = await app.inject({ method: "GET", url: "/api/read/session", headers: { host, cookie } });
   expect(session.json().csrf_token).toHaveLength(43);
   const asset = await app.inject({ method: "GET", url: "/assets/app-abc123.js", headers: { host, cookie } });

@@ -55,7 +55,9 @@ const app = buildWebListener({
   db,
   content,
   sessionSecret: "e2e-session-secret",
-  allowedOrigins: ["http://127.0.0.1:4173"],
+  allowedOrigins: ["http://localhost:4173"],
+  allowedHosts: ["127.0.0.1", "localhost"],
+  lanOrigins: ["http://127.0.0.1:4173"],
   staticDirectory: resolve("apps/web-console/dist"),
 });
 await app.listen({ host: "127.0.0.1", port: 4173 });

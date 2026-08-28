@@ -821,8 +821,8 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 /* A Run has one canvas surface: do not leave the layout's legacy minimum-height as a second blank panel below it. */
 .run-canvas-card .workflow-canvas-layout.is-readonly { min-height: 0; background: #1e1e1e; }
 @media (min-width: 981px) { .app-frame:has(.canvas-page) { height: 100dvh; min-height: 0; overflow: hidden; grid-template-rows: 58px minmax(0, 1fr); }.app-frame:has(.canvas-page) main { min-height: 0; overflow: hidden; padding-block: 18px; }.canvas-page { height: 100%; min-height: 0; }.canvas-workspace,.canvas-page .canvas-stage { min-height: 0; height: 100%; } }
-@media (max-width: 980px) { .app-frame { grid-template: 58px auto 1fr/minmax(0,1fr); }.topbar { padding: 0 14px; }.sidebar { top: 58px; }.role-market { left: 16px; }.react-flow__controls { right: 184px !important; } }
-@media (max-width: 560px) { .canvas-floating-actions { top: 10px; left: 10px; }.react-flow__controls { right: 14px !important; bottom: 176px !important; }.react-flow__minimap { right: 14px !important; bottom: 14px !important; transform: scale(.78); transform-origin: bottom right; }.canvas-empty-state { padding: 24px; }.sidebar { top: 58px; } }
+@media (max-width: 980px) { .app-frame { grid-template: auto auto minmax(0,1fr)/minmax(0,1fr); }.topbar { position:relative; height:auto; min-height:58px; padding:10px 14px; }.sidebar { position:relative; top:auto; }.role-market { left: 16px; }.react-flow__controls { right: 184px !important; } }
+@media (max-width: 560px) { .canvas-floating-actions { top: 10px; left: 10px; }.react-flow__controls { right: 14px !important; bottom: 176px !important; }.react-flow__minimap { right: 14px !important; bottom: 14px !important; transform: scale(.78); transform-origin: bottom right; }.canvas-empty-state { padding: 24px; } }
 /* Keep workflow-wide actions available while a node inspector is open. */
 @media (min-width: 981px) {
   .canvas-drawer { top: 132px; max-height: calc(100dvh - 150px); }
@@ -845,3 +845,22 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 .canvas-context-menu button:hover:not(:disabled),.canvas-context-menu button:focus-visible:not(:disabled) { background:rgba(255,109,90,.16); outline:0; }
 .canvas-context-menu button:disabled { color:#8b8b8b; cursor:not-allowed; }
 @media (min-width: 981px) { .role-market { left: auto; right: 18px; } }
+
+/* Session and terminal states stay compact and usable across screen and print. */
+.logout-form { margin: 0; }
+.logout-button { min-height: 36px; padding: 7px 11px; }
+.not-found { max-width: 42rem; margin: 7vh auto 0; text-align: center; }
+.not-found .button { margin-top: 14px; }
+
+@media print {
+  html, body, #root, .app-frame, main, .page { width: auto !important; height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; color: #111 !important; }
+  .topbar, .sidebar, .skip-link, .print-hidden, .logout-form { display: none !important; }
+  main { padding: 0 !important; }
+  .page { max-width: none !important; }
+  .table-scroll { overflow: visible !important; border: 0 !important; }
+  .card, .table-shell, .workflow-list, .workflow-list-item { box-shadow: none !important; break-inside: avoid; border-color: #aaa !important; background: #fff !important; color: #111 !important; }
+  table { width: 100% !important; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  a { color: #111 !important; text-decoration: none !important; }
+}

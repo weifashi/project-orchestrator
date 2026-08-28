@@ -3,6 +3,7 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { ContentStore } from '@project-orchestrator/content-store';
 import { ConfigService, seedBuiltins } from '@project-orchestrator/orchestrator-service';
 import { migrate, openDatabase, SqliteConfigRepository } from '@project-orchestrator/sqlite-store';
+import { runtimeVersion } from './version.js';
 
 export type LocalStateInput = Readonly<{
   databasePath: string;
@@ -31,6 +32,7 @@ function readCredential(path: string): string {
 }
 
 export function initializeLocalState(input: LocalStateInput): void {
+  const version = runtimeVersion();
   const credentials = {
     codex: readCredential(input.credentialFiles.codex),
     claude: readCredential(input.credentialFiles.claude),
@@ -45,7 +47,7 @@ export function initializeLocalState(input: LocalStateInput): void {
     for (const clientType of ['codex', 'claude'] as const) {
       const capability = content.putCanonicalJson({
         clientType,
-        adapterVersion: '0.1.5',
+        adapterVersion: version,
         trustedRootSessionIdentity: true,
         parallelSubagentIsolation: false,
         trustedInteractiveConfirmation: false,
@@ -56,7 +58,7 @@ export function initializeLocalState(input: LocalStateInput): void {
         VALUES(?,?,?,?,?,'active',?)
         ON CONFLICT(id) DO UPDATE SET adapter_version=excluded.adapter_version,
           capability_object_id=excluded.capability_object_id,credential_hash=excluded.credential_hash,status='active'`)
-        .run(`local-${clientType}`, clientType, '0.1.5', capability.id,
+        .run(`local-${clientType}`, clientType, version, capability.id,
           createHash('sha256').update(credentials[clientType]).digest('hex'), now);
     }
   } finally {

@@ -1,6 +1,6 @@
 {
   "name": "project-orchestrator",
-  "version": "0.1.36",
+  "version": "0.1.38",
   "private": true,
   "packageManager": "pnpm@11.0.8",
   "engines": {
@@ -22,7 +22,7 @@
     "test:e2e": "playwright test",
     "diff-check": "node scripts/web-diff-check.mjs",
     "release": "node scripts/build-release.mjs",
-    "test:install": "bash tests/install/linux-smoke.sh"
+    "test:install": "bash tests/install/linux-smoke.sh && bash tests/install/release-layout.sh"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

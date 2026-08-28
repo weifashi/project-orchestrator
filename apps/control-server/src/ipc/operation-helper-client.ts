@@ -2,6 +2,7 @@ import { connect } from 'node:net';
 import type { OperationHelper, OperationExecutionResult } from '@project-orchestrator/orchestrator-service';
 
 type HelperResponse = OperationExecutionResult | { error: string };
+type PingResponse = { ready: true };
 
 export class OperationHelperClient implements OperationHelper {
   constructor(
@@ -22,20 +23,25 @@ export class OperationHelperClient implements OperationHelper {
     return this.request({ kind: 'reconcile', ...input });
   }
 
-  private request(message: unknown): Promise<OperationExecutionResult> {
+  async ping(): Promise<void> {
+    const response = await this.request<PingResponse>({ kind: 'ping' }, Math.min(this.timeoutMs, 1_000));
+    if (response.ready !== true) throw new Error('OPERATION_HELPER_INVALID_RESPONSE');
+  }
+
+  private request<T = OperationExecutionResult>(message: unknown, timeoutMs = this.timeoutMs): Promise<T> {
     return new Promise((resolve, reject) => {
       const socket = connect(this.socketPath);
       let buffer = '';
       let settled = false;
-      const finish = (error?: Error, response?: OperationExecutionResult): void => {
+      const finish = (error?: Error, response?: T): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         socket.destroy();
         if (error !== undefined) reject(error);
-        else resolve(response as OperationExecutionResult);
+        else resolve(response as T);
       };
-      const timer = setTimeout(() => finish(new Error('OPERATION_HELPER_TIMEOUT')), this.timeoutMs);
+      const timer = setTimeout(() => finish(new Error('OPERATION_HELPER_TIMEOUT')), timeoutMs);
       socket.setEncoding('utf8');
       socket.on('connect', () => socket.write(`${JSON.stringify(message)}\n`));
       socket.on('data', (chunk) => {
@@ -47,9 +53,9 @@ export class OperationHelperClient implements OperationHelper {
         const newline = buffer.indexOf('\n');
         if (newline < 0) return;
         try {
-          const parsed = JSON.parse(buffer.slice(0, newline)) as HelperResponse;
-          if ('error' in parsed) finish(new Error(parsed.error));
-          else finish(undefined, parsed);
+          const parsed = JSON.parse(buffer.slice(0, newline)) as HelperResponse | PingResponse;
+          if (parsed && typeof parsed === 'object' && 'error' in parsed) finish(new Error(parsed.error));
+          else finish(undefined, parsed as T);
         } catch {
           finish(new Error('OPERATION_HELPER_INVALID_RESPONSE'));
         }

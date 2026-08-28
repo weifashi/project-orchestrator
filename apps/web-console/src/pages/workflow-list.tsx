@@ -23,7 +23,7 @@ export function WorkflowListPage() {
         <input type="search" aria-label={t("searchTemplates")} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("searchTemplates")} />
       </label>
     </div>
-    {error ? <ErrorPanel error={error} /> : !visible.length ? <EmptyState /> : <div className="workflow-list">{visible.map((item) => <article className="workflow-list-item" key={item.id}>
+    {error ? <ErrorPanel error={error} /> : data === undefined ? <p className="muted" role="status">{t("loading")}</p> : !visible.length ? <EmptyState /> : <div className="workflow-list">{visible.map((item) => <article className="workflow-list-item" key={item.id}>
       <span className="workflow-list-mark" aria-hidden>{label(item.slug).slice(0, 1)}</span>
       <div className="workflow-list-primary">
         <Link className="row-link" to={`/workflows/${item.id}`}>{label(item.slug)}</Link>
