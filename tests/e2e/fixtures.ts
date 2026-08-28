@@ -80,7 +80,7 @@ const run = {
   failure_summary: null,
   is_retryable: 0,
 };
-export async function mockApi(page: Page) {
+export async function mockApi(page: Page, options: { runObjective?: string } = {}) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url()),
       path = url.pathname;
@@ -107,6 +107,7 @@ export async function mockApi(page: Page) {
       return route.fulfill({
         json: {
           ...run,
+          objective: options.runObjective ?? run.objective,
           snapshot: { workflow_object_id: "o1" },
           stages: [
             {

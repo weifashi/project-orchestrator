@@ -14,6 +14,11 @@ for path in \
   test -e "$release/$path" || { echo "missing release path: $path" >&2; exit 1; }
 done
 test -z "$(find "$release" -name '*.map' -o -name '.env' -o -name '.git')"
+test -z "$(find "$release/app" -name '.modules.yaml' -o -type d -name '.bin')"
+if grep -r -I -q '\.project-orchestrator-.*-staging-' "$release/app"; then
+  echo 'release contains a build-machine staging path' >&2
+  exit 1
+fi
 while IFS= read -r -d '' link; do
   [[ $(readlink "$link") != /* ]] || { echo "absolute release symlink: $link" >&2; exit 1; }
 done < <(find "$release" -type l -print0)
@@ -24,7 +29,12 @@ cmp scripts/install.sh "$release/install.sh"
 # online backup, upgrade, and backup integrity check.
 upgrade_home=$(mktemp -d)
 previous_source="$upgrade_home/source-0.1.36"
-previous_commit=$(git log -S'"version": "0.1.36"' --format=%H -- package.json | head -1)
+previous_commit=
+mapfile -t package_commits < <(git log --format=%H -- package.json)
+for candidate in "${package_commits[@]}"; do
+  candidate_version=$(git show "$candidate:package.json" | node -e 'let value="";process.stdin.on("data",chunk=>value+=chunk).on("end",()=>process.stdout.write(JSON.parse(value).version))')
+  if [[ $candidate_version = 0.1.36 ]]; then previous_commit=$candidate; break; fi
+done
 test -n "$previous_commit" || { echo 'cannot locate the real 0.1.36 source revision' >&2; exit 1; }
 cleanup_upgrade() {
   git worktree remove --force "$previous_source" >/dev/null 2>&1 || true

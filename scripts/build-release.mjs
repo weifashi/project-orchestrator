@@ -36,6 +36,24 @@ const deployments = [
 for (const [filter, name] of deployments) {
   run('pnpm', ['--filter', filter, 'deploy', '--legacy', '--prod', join(staging, 'app', name)]);
 }
+// pnpm deploy leaves build-machine metadata and command shims in node_modules.
+// .modules.yaml contains a timestamp and store path, while generated .bin files
+// contain the per-process staging path. Neither is needed by the runtime, and
+// retaining them makes two builds from identical source produce different bytes.
+async function removeDeployMetadata(directory, insideNodeModules = false) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    const nestedNodeModules = insideNodeModules || entry.name === 'node_modules';
+    if (nestedNodeModules && entry.isDirectory() && entry.name === '.bin') {
+      await rm(path, { recursive: true, force: true });
+    } else if (nestedNodeModules && entry.isFile() && entry.name === '.modules.yaml') {
+      await rm(path);
+    } else if (entry.isDirectory()) {
+      await removeDeployMetadata(path, nestedNodeModules);
+    }
+  }
+}
+for (const [, name] of deployments) await removeDeployMetadata(join(staging, 'app', name));
 await cp(join(root, 'apps/web-console/dist'), join(staging, 'web'), { recursive: true });
 await cp(join(root, 'packages/sqlite-store/migrations'), join(staging, 'migrations'), { recursive: true });
 await cp(join(root, 'adapters/codex/project-orchestrator'), join(staging, 'marketplaces/codex/plugins/project-orchestrator'), { recursive: true });

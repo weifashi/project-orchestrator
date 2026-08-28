@@ -51,6 +51,31 @@ it("renders active stages, waits, attempts, artifacts and unknown side effects w
     ).not.toBeInTheDocument();
 });
 
+it("marks a long Run objective as a compact two-line title while preserving the full text", async () => {
+  const objective = "在 /workspace/ttpos-control-panel 按 develop 分支构建 2.28.6，构建成功后自动更新 node01，并触发开始一键更新；同时提供完整的 HTML 改动汇报。";
+  const api = fakeApi({
+    runs: {
+      list: async () => [],
+      get: async () => ({
+        ...(await fakeApi().runs.get("run-1")),
+        objective,
+      }),
+    },
+  });
+  render(
+    <ApiContext.Provider value={api}>
+      <MemoryRouter initialEntries={["/runs/run-1"]}>
+        <Routes><Route path="/runs/:id" element={<RunDetailPage />} /></Routes>
+      </MemoryRouter>
+    </ApiContext.Provider>,
+  );
+
+  const heading = await screen.findByRole("heading", { level: 1, name: objective });
+  expect(heading).toHaveClass("run-objective-title");
+  expect(heading).toHaveAttribute("title", objective);
+  expect(heading.closest(".page-head")).toHaveClass("run-detail-head");
+});
+
 it("refreshes the complete Run snapshot after a live event", async () => {
   let reads = 0;
   const api = fakeApi({

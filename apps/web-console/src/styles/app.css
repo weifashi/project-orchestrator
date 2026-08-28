@@ -846,6 +846,23 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 .canvas-context-menu button:disabled { color:#8b8b8b; cursor:not-allowed; }
 @media (min-width: 981px) { .role-market { left: auto; right: 18px; } }
 
+/* Run objectives can be full project briefs; keep the page header compact without
+   changing headings on the rest of the console. The title attribute preserves the
+   complete objective for pointer users, and assistive technology still reads it. */
+.run-detail-heading { flex: 1 1 auto; min-width: 0; }
+.run-detail-head > .badge { flex: 0 0 auto; }
+.run-objective-title {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(1.3rem, 2vw, 1.8rem);
+  line-height: 1.16;
+  letter-spacing: -0.035em;
+  text-wrap: pretty;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 /* Session and terminal states stay compact and usable across screen and print. */
 .logout-form { margin: 0; }
 .logout-button { min-height: 36px; padding: 7px 11px; }
@@ -863,4 +880,5 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
   thead { display: table-header-group; }
   tr { break-inside: avoid; }
   a { color: #111 !important; text-decoration: none !important; }
+  .run-objective-title { display: block; overflow: visible; -webkit-line-clamp: unset; }
 }

@@ -107,12 +107,12 @@ export function RunDetailPage() {
   );
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
+      <div className="page-head run-detail-head">
+        <div className="run-detail-heading">
           <span className="eyebrow">
             {data.origin_client_type} · {data.project_name ?? data.project_id}
           </span>
-          <h1 tabIndex={-1}>{data.objective}</h1>
+          <h1 className="run-objective-title" title={data.objective} tabIndex={-1}>{data.objective}</h1>
           <p className="muted">
             {t("runId")} {data.id} · {t("workflowSnapshot")} {data.workflow_version_id}
           </p>

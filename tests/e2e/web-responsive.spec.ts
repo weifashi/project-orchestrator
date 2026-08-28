@@ -93,3 +93,23 @@ test("mobile header controls stay inside the header and never overlap navigation
   expect(bounds.headerBottom).toBeLessThanOrEqual(bounds.sidebarTop + 1);
   await page.close();
 });
+
+test("long Run objectives use at most two compact lines and preserve the full text", async ({ browser }) => {
+  const objective = "在 /workspace/ttpos-control-panel 按 develop 分支构建 2.28.6，构建成功后自动更新 node01，并触发开始一键更新；同时提供完整的 HTML 改动汇报。";
+  const page = await browser.newPage({ viewport: { width: 1568, height: 900 } });
+  await mockApi(page, { runObjective: objective });
+  await page.goto("/runs/run-1");
+  const title = page.locator(".run-objective-title");
+  await expect(title).toHaveAttribute("title", objective);
+  const metrics = await title.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      lineClamp: style.webkitLineClamp,
+      height: element.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(style.lineHeight),
+    };
+  });
+  expect(metrics.lineClamp).toBe("2");
+  expect(metrics.height).toBeLessThanOrEqual(metrics.lineHeight * 2 + 1);
+  await page.close();
+});
