@@ -850,7 +850,10 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
    changing headings on the rest of the console. The title attribute preserves the
    complete objective for pointer users, and assistive technology still reads it. */
 .run-detail-heading { flex: 1 1 auto; min-width: 0; }
-.run-detail-head > .badge { flex: 0 0 auto; }
+.export-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.export-actions .button { min-height: 34px; padding: 7px 10px; font-size: .78rem; }
+.page-head-tools { display: grid; justify-items: end; gap: 10px; min-width: min(100%, 360px); }
+.page-head-tools .field { width: min(100%, 360px); }
 .run-objective-title {
   display: -webkit-box;
   max-width: 100%;
@@ -871,7 +874,7 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
 
 @media print {
   html, body, #root, .app-frame, main, .page { width: auto !important; height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; color: #111 !important; }
-  .topbar, .sidebar, .skip-link, .print-hidden, .logout-form { display: none !important; }
+  .topbar, .sidebar, .skip-link, .print-hidden, .logout-form, .export-actions { display: none !important; }
   main { padding: 0 !important; }
   .page { max-width: none !important; }
   .table-scroll { overflow: visible !important; border: 0 !important; }
@@ -881,4 +884,10 @@ main { padding: 28px clamp(20px, 3vw, 44px) 52px; }.page { max-width: 1320px; }.
   tr { break-inside: avoid; }
   a { color: #111 !important; text-decoration: none !important; }
   .run-objective-title { display: block; overflow: visible; -webkit-line-clamp: unset; }
+}
+
+@media (max-width: 684px) {
+  .page-head-tools { width: 100%; justify-items: stretch; }
+  .page-head-tools .field { width: 100%; }
+  .export-actions { justify-content: flex-start; }
 }

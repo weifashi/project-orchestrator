@@ -4,6 +4,16 @@ import type Database from "better-sqlite3";
 import type { ContentStore } from "@project-orchestrator/content-store";
 import { BUILTIN_ROLE_SLUGS } from "@project-orchestrator/orchestrator-service";
 import { runtimeVersion } from "../../version.js";
+import {
+  buildMemoryExport,
+  buildRunExport,
+  parseExportFormat,
+  parseExportLocale,
+  renderJsonExport,
+  renderMemoryMarkdown,
+  renderRunMarkdown,
+  safeExportFilename,
+} from "../export.js";
 
 const builtinSlugs = new Set<string>(BUILTIN_ROLE_SLUGS);
 
@@ -312,6 +322,47 @@ export function registerReadRoutes(
         )
         .all(id),
     };
+  });
+  app.get("/api/read/run-exports/*", async (req, reply) => {
+    const query = req.query as { format?: string; lang?: string };
+    let format: "json" | "markdown", locale: "zh-CN" | "en";
+    try {
+      format = parseExportFormat(query.format);
+      locale = parseExportLocale(query.lang);
+    } catch {
+      return reply.code(400).send({ error: "invalid export options" });
+    }
+    const id = wildcard(req.params);
+    const exported = db.transaction(() => buildRunExport(db, content, id)).deferred();
+    const extension = format === "json" ? "json" : "md";
+    const body = format === "json" ? renderJsonExport(exported) : renderRunMarkdown(exported, locale);
+    return reply
+      .header("Content-Disposition", `attachment; filename="run-${safeExportFilename(id)}.${extension}"`)
+      .header("Cache-Control", "no-store")
+      .header("X-Content-Type-Options", "nosniff")
+      .type(format === "json" ? "application/json; charset=utf-8" : "text/markdown; charset=utf-8")
+      .send(body);
+  });
+  app.get("/api/read/memory-exports", async (req, reply) => {
+    const query = req.query as { format?: string; project_id?: string; lang?: string };
+    let format: "json" | "markdown", locale: "zh-CN" | "en";
+    try {
+      format = parseExportFormat(query.format);
+      locale = parseExportLocale(query.lang);
+    } catch {
+      return reply.code(400).send({ error: "invalid export options" });
+    }
+    const projectId = query.project_id?.trim() || undefined;
+    const exported = db.transaction(() => buildMemoryExport(db, content, projectId)).deferred();
+    const extension = format === "json" ? "json" : "md";
+    const prefix = projectId === undefined ? "project-memories" : `project-${safeExportFilename(projectId)}-memories`;
+    const body = format === "json" ? renderJsonExport(exported) : renderMemoryMarkdown(exported, locale);
+    return reply
+      .header("Content-Disposition", `attachment; filename="${prefix}.${extension}"`)
+      .header("Cache-Control", "no-store")
+      .header("X-Content-Type-Options", "nosniff")
+      .type(format === "json" ? "application/json; charset=utf-8" : "text/markdown; charset=utf-8")
+      .send(body);
   });
   app.get("/api/read/events/*", async (req) => {
     const query = req.query as { after?: string };

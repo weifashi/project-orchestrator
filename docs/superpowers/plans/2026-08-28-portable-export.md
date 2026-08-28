@@ -1,6 +1,6 @@
 # Portable JSON and Markdown Export Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add safe JSON and Markdown downloads for a Run and for project memories while SQLite/CAS remain the only source of truth.
 
@@ -18,60 +18,59 @@
 - Modify `apps/web-console/src/pages/run-detail.tsx`: Run export menu.
 - Modify `apps/web-console/src/pages/memories.tsx`: memory export menu.
 - Modify `apps/web-console/src/i18n.tsx`: Chinese and English export labels.
-- Modify `tests/integration/web-agent-isolation.integration.test.ts`: export security and content tests.
+- Create `tests/integration/web-export.integration.test.ts`: export security and content tests.
 - Modify `apps/web-console/test/client.test.ts`: API surface test.
 - Modify `apps/web-console/test/run-detail.test.tsx`: visible download actions and no Run control.
 - Create `apps/web-console/test/memories.test.tsx`: filtered memory export behavior.
 
 ## Task 1: Define the export evidence contract in tests
 
-- [ ] Add an integration fixture containing one Run, frozen workflow, stage,
+- [x] Add an integration fixture containing one Run, frozen workflow, stage,
   attempt, artifact/CAS metadata, memory, confirmation, operation, and event.
-- [ ] Assert JSON schema id/version, allow-listed sections, verified artifact
+- [x] Assert JSON schema id/version, allow-listed sections, verified artifact
   SHA-256, attachment headers, and absence of secret/nonce/storage-key fields.
-- [ ] Assert Markdown contains the objective, stage/evidence summaries and trust
+- [x] Assert Markdown contains the objective, stage/evidence summaries and trust
   notice, while omitting event payloads and active artifact bodies.
-- [ ] Assert project-filtered memory exports exclude every other project.
-- [ ] Assert unsupported format is 400, missing Run is 404, and export performs
+- [x] Assert project-filtered memory exports exclude every other project.
+- [x] Assert unsupported format is 400, missing Run is 404, and export performs
   no database or CAS writes.
 
 ## Task 2: Implement a single projection and two renderers
 
-- [ ] Create `export.ts` with `buildRunExport`, `buildMemoryExport`,
+- [x] Create `export.ts` with `buildRunExport`, `buildMemoryExport`,
   `renderJsonExport`, `renderRunMarkdown`, and `renderMemoryMarkdown`.
-- [ ] Use explicit SELECT column lists. Join artifact rows to `content_objects`
+- [x] Use explicit SELECT column lists. Join artifact rows to `content_objects`
   for hash/media/size while excluding `storage_key` and artifact body bytes.
-- [ ] Parse frozen workflow, changed-file manifests, and output envelopes only
+- [x] Parse frozen workflow, changed-file manifests, and output envelopes only
   from verified CAS objects. Keep event payloads out of the export contract.
-- [ ] Escape Markdown table cells and headings so saved business text cannot
+- [x] Escape Markdown table cells and headings so saved business text cannot
   corrupt the generated report structure.
 
 ## Task 3: Add safe read-only download routes
 
-- [ ] Add `GET /api/read/run-export/:id?format=json|markdown`.
-- [ ] Add `GET /api/read/memory-export?project_id=<id>&format=json|markdown`.
-- [ ] Set fixed attachment filenames, `no-store`, `nosniff`, and media types.
-- [ ] Do not add POST routes, CSRF exceptions, or any runtime-control surface.
+- [x] Add `GET /api/read/run-exports/:id?format=json|markdown&lang=zh-CN|en`.
+- [x] Add `GET /api/read/memory-exports?project_id=<id>&format=json|markdown&lang=zh-CN|en`.
+- [x] Set fixed attachment filenames, `no-store`, `nosniff`, and media types.
+- [x] Do not add POST routes, CSRF exceptions, or any runtime-control surface.
 
 ## Task 4: Add constrained Web download actions
 
-- [ ] Add `runs.exportUrl(id, format)` and
-  `memories.exportUrl(projectId, format)` to the named API client surface.
-- [ ] Add compact JSON/Markdown links to the Run detail header.
-- [ ] Add compact JSON/Markdown links to the memory page and preserve its
+- [x] Add `runs.exportUrl(id, format, lang)` and
+  `memories.exportUrl(projectId, format, lang)` to the named API client surface.
+- [x] Add compact JSON/Markdown links to the Run detail header.
+- [x] Add compact JSON/Markdown links to the memory page and preserve its
   project filter in the URL.
-- [ ] Add matching Chinese and English labels without translating saved business
+- [x] Add matching Chinese and English labels without translating saved business
   text or identifiers.
 
 ## Task 5: Run one final verification batch
 
-- [ ] Run `pnpm lint`.
-- [ ] Run `pnpm typecheck`.
-- [ ] Run `pnpm test`.
-- [ ] Run `pnpm test:integration`.
-- [ ] Run `pnpm test:e2e`.
-- [ ] Run `pnpm build`, `pnpm validate:skills`, `pnpm validate:plugins`,
+- [x] Run `pnpm lint`.
+- [x] Run `pnpm typecheck`.
+- [x] Run `pnpm test`.
+- [x] Run `pnpm test:integration`.
+- [x] Run `pnpm test:e2e`.
+- [x] Run `pnpm build`, `pnpm validate:skills`, `pnpm validate:plugins`,
   `pnpm check:generated`, `pnpm diff-check`, and `pnpm test:install`.
-- [ ] Confirm Git diff contains no database migration, secret value, new Run
+- [x] Confirm Git diff contains no database migration, secret value, new Run
   control route, or external network dependency.
-

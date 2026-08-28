@@ -27,6 +27,14 @@ it("renders active stages, waits, attempts, artifacts and unknown side effects w
   expect(screen.getByText(/禁止直接重试/)).toBeInTheDocument();
   expect(await screen.findByText("测试验证")).toBeInTheDocument();
   expect(await screen.findByText("排队中")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "导出 JSON" })).toHaveAttribute(
+    "href",
+    "/api/read/run-exports/run-1?format=json&lang=zh-CN",
+  );
+  expect(screen.getByRole("link", { name: "导出 Markdown" })).toHaveAttribute(
+    "href",
+    "/api/read/run-exports/run-1?format=markdown&lang=zh-CN",
+  );
   expect(screen.queryByText("当前阶段")).not.toBeInTheDocument();
   expect(screen.queryByText("阶段状态")).not.toBeInTheDocument();
   expect(screen.queryByText("冻结快照")).not.toBeInTheDocument();
@@ -53,11 +61,12 @@ it("renders active stages, waits, attempts, artifacts and unknown side effects w
 
 it("marks a long Run objective as a compact two-line title while preserving the full text", async () => {
   const objective = "在 /workspace/ttpos-control-panel 按 develop 分支构建 2.28.6，构建成功后自动更新 node01，并触发开始一键更新；同时提供完整的 HTML 改动汇报。";
+  const base = fakeApi();
   const api = fakeApi({
     runs: {
-      list: async () => [],
+      ...base.runs,
       get: async () => ({
-        ...(await fakeApi().runs.get("run-1")),
+        ...(await base.runs.get("run-1")),
         objective,
       }),
     },
@@ -78,11 +87,12 @@ it("marks a long Run objective as a compact two-line title while preserving the 
 
 it("refreshes the complete Run snapshot after a live event", async () => {
   let reads = 0;
+  const base = fakeApi();
   const api = fakeApi({
     runs: {
-      list: async () => [],
+      ...base.runs,
       get: async () => ({
-        ...(await fakeApi().runs.get("run-1")),
+        ...(await base.runs.get("run-1")),
         status: reads++ === 0 ? "created" : "running",
         stages: [{ id: "stage-testing", stage_key: "testing", iteration_number: 0, role_version_id: "role-v1", status: reads === 1 ? "queued" : "running" }],
       }),

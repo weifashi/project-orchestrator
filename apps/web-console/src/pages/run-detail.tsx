@@ -117,7 +117,11 @@ export function RunDetailPage() {
             {t("runId")} {data.id} · {t("workflowSnapshot")} {data.workflow_version_id}
           </p>
         </div>
-        <Badge>{data.status}</Badge>
+        <div className="export-actions" aria-label={t("exportData")}>
+          <a className="button ghost" href={api.runs.exportUrl(id, "json", locale)} download>{t("exportJson")}</a>
+          <a className="button ghost" href={api.runs.exportUrl(id, "markdown", locale)} download>{t("exportMarkdown")}</a>
+          <Badge>{data.status}</Badge>
+        </div>
       </div>
       {waiting && (
         <div className="notice">

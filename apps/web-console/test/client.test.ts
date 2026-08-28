@@ -22,11 +22,26 @@ describe("boundary-safe Web API client", () => {
       "restore",
       "saveDraft",
     ]);
-    expect(Object.keys(api.runs).sort()).toEqual(["get", "list"]);
+    expect(Object.keys(api.runs).sort()).toEqual(["exportUrl", "get", "list"]);
     expect(Object.keys(api.events)).toEqual(["list"]);
     expect(Object.keys(api.artifacts).sort()).toEqual(["downloadUrl", "list"]);
+    expect(Object.keys(api.memories).sort()).toEqual(["exportUrl", "list"]);
     expect(Object.keys(api.system)).toEqual(["diagnostics"]);
     expect(api).not.toHaveProperty("post");
+  });
+  it("builds encoded read-only export URLs without issuing a request", () => {
+    const fetcher = vi.fn();
+    const api = createApiClient({ fetch: fetcher });
+    expect(api.runs.exportUrl("run/one", "markdown", "zh-CN")).toBe(
+      "/api/read/run-exports/run%2Fone?format=markdown&lang=zh-CN",
+    );
+    expect(api.memories.exportUrl("project one", "json", "en")).toBe(
+      "/api/read/memory-exports?format=json&lang=en&project_id=project+one",
+    );
+    expect(api.memories.exportUrl(undefined, "markdown", "zh-CN")).toBe(
+      "/api/read/memory-exports?format=markdown&lang=zh-CN",
+    );
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("sends CSRF only with config writes and never sends adapter credentials", async () => {
     const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];

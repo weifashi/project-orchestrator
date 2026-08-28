@@ -231,6 +231,8 @@ export function createApiClient(options: ClientOptions = {}) {
         request<RunSummary[]>(`/api/read/runs${query(filters)}`),
       get: (id: string) =>
         request<RunDetail>(`/api/read/runs/${encodeURIComponent(id)}`),
+      exportUrl: (id: string, format: "json" | "markdown", lang: "zh-CN" | "en") =>
+        `/api/read/run-exports/${encodeURIComponent(id)}${query({ format, lang })}`,
     }),
     events: Object.freeze({
       list: (runId: string, after = 0) =>
@@ -251,6 +253,8 @@ export function createApiClient(options: ClientOptions = {}) {
         request<MemorySummary[]>(
           `/api/read/memories${query({ project_id: projectId })}`,
         ),
+      exportUrl: (projectId: string | undefined, format: "json" | "markdown", lang: "zh-CN" | "en") =>
+        `/api/read/memory-exports${query({ format, lang, project_id: projectId })}`,
     }),
     system: Object.freeze({
       diagnostics: () =>

@@ -11,7 +11,7 @@ the database and never changes Run state.
 
 ### Run detail
 
-The Run detail header gains an **Export** menu with two downloads:
+The Run detail header gains two compact export downloads:
 
 - `run-<id>.json` — complete machine-readable Run projection.
 - `run-<id>.md` — human-readable handoff and audit report.
@@ -44,7 +44,7 @@ Every JSON file uses an explicit envelope:
 }
 ```
 
-Run exports contain `run`, `workflow_snapshot`, `stages`, `attempts`,
+Run exports contain `run`, `snapshot`, `workflow_snapshot`, `stages`, `attempts`,
 `iterations`, `artifacts`, `confirmations`, `side_effects`, `memories`, and
 `events`. Memory exports use `project_filter` and `memories`. JSON is formatted
 with two-space indentation and a trailing newline so it is readable and Git
@@ -67,9 +67,9 @@ does not interpret it as instructions.
 - The projection is allow-listed. It excludes Web users, session secrets,
   cookies, CSRF tokens, adapter credentials, lease tokens, recovery credentials,
   confirmation nonces, internal object storage keys, and operation parameters.
-- Event payloads are excluded because they can contain adapter- or
-  operation-specific input. The timeline exports only event identity, type,
-  stage, sequence, source principal, and timestamp.
+- Event payloads and source principals are excluded because they can contain
+  adapter- or session-specific input. The timeline exports only event identity,
+  type, stage, sequence, and timestamp.
 - Artifact contents are never embedded. CAS metadata is joined by object id to
   provide a verifiable SHA-256 digest without exposing the storage key.
 
@@ -78,7 +78,9 @@ does not interpret it as instructions.
 No migration or new table is required. Each request reads a consistent SQLite
 snapshot inside a deferred transaction, verifies referenced CAS objects before
 reporting their hashes, then renders the selected format. Missing Run ids return
-404. Unsupported formats return 400. A missing or corrupted referenced CAS
+404. Unsupported formats or languages return 400. Markdown labels follow the
+explicit `lang=zh-CN|en` query sent by the Web console, while saved business
+text and identifiers remain unchanged. A missing or corrupted referenced CAS
 object fails closed with 500 rather than producing a misleading complete report.
 
 ## Compatibility
@@ -98,4 +100,3 @@ export as trusted executable policy.
 5. No database row, Run state, or CAS object is created by an export.
 6. Web continues to expose no Run execution, retry, confirmation, or deployment
    action.
-

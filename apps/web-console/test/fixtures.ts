@@ -171,13 +171,24 @@ export function fakeApi(overrides: Partial<ApiClient> = {}): ApiClient {
       }),
       publish: async () => ({}),
     },
-    runs: { list: async () => [], get: async () => runDetail },
+    runs: {
+      list: async () => [],
+      get: async () => runDetail,
+      exportUrl: (id, format, lang) => `/api/read/run-exports/${encodeURIComponent(id)}?format=${format}&lang=${lang}`,
+    },
     events: { list: async () => [] },
     artifacts: {
       list: async () => [],
       downloadUrl: (id) => `/api/read/artifact-content/${id}`,
     },
-    memories: { list: async () => [] },
+    memories: {
+      list: async () => [],
+      exportUrl: (projectId, format, lang) => {
+        const query = new URLSearchParams({ format, lang });
+        if (projectId) query.set("project_id", projectId);
+        return `/api/read/memory-exports?${query}`;
+      },
+    },
     system: { diagnostics: async () => system },
     ...overrides,
   } as ApiClient;

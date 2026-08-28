@@ -11,7 +11,7 @@ git clone https://github.com/weifashi/project-orchestrator.git
 cd project-orchestrator
 pnpm install --frozen-lockfile
 pnpm release
-bash release/project-orchestrator-0.1.40/install.sh --both
+bash release/project-orchestrator-0.1.42/install.sh --both
 ```
 
 The installer is idempotent. It creates private state under `~/.project-orchestrator`, immutable releases under `~/.local/share/project-orchestrator/releases`, command links under `~/.local/bin`, separate Codex/Claude adapter credentials, SQLite/CAS state, and the built-in workflow templates. It also registers both local plugin marketplaces.
@@ -54,3 +54,9 @@ Linux upgrades create a consistent SQLite/CAS backup before migration and restor
 - 点击「添加节点」可搜索本机角色，也可以把角色卡拖入画布；从节点端口拖线建立前后依赖。节点设置和角色市场均以浮层打开，不会压缩画布。
 - 节点分组和折叠仅改变展示，不改变阶段、边或运行规则。强制安全门和受保护依赖不能删除或绕过。
 - 「任务记录」复用同一画布导航，但只能查看冻结流程、状态和证据；网页没有开始、暂停、重试、确认或部署功能。
+
+## 只读导出
+
+- 在「任务记录 › 任务详情」下载当前 Run 的 JSON 证据包或 Markdown 审计报告。
+- 在「项目记忆」按当前项目筛选下载 JSON 或 Markdown；未筛选时导出全部可见项目记忆。
+- SQLite 与 CAS 仍是唯一事实源。导出不会创建数据库记录、改变 Run 状态或内嵌产物正文；JSON 使用带版本号的稳定信封，Markdown 标签跟随当前中英文界面，保存的业务正文保持原样。
