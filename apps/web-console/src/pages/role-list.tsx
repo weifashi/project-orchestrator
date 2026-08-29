@@ -7,7 +7,6 @@ import { Badge } from "../components/badge";
 import { CanvasDrawer } from "../components/canvas-drawer";
 import { EmptyState } from "../components/empty-state";
 import { ErrorPanel } from "../components/error-panel";
-import { VersionInspector } from "../components/version-inspector";
 import { useI18n } from "../i18n";
 import { useLoad } from "./use-load";
 
@@ -73,15 +72,10 @@ export function RoleListPage() {
 
   const card = (role: RoleSummary) => <article className="card role-card span-4" key={role.id}>
     <div className="page-head">
-      <div><strong>{named(role.slug, role.name)}</strong><small className="block">{role.slug} · v{role.version_number ?? "—"}</small></div>
+      <div><strong>{named(role.slug, role.name)}</strong><small className="block">{role.slug}</small></div>
       <Badge>{role.is_builtin ? t("builtin") : t("custom")}</Badge>
     </div>
-    <p>{t("roleProtocol")}</p>
     <div className="stage-pills">{role.effective_capabilities?.slice(0, 3).map((cap) => <span className="badge badge-live" key={cap}>{label(cap)}</span>)}</div>
-    <details><summary>{t("history")}</summary><ul>{role.versions?.map((version) => <li key={version.id}>
-      <details><summary>v{version.version_number} · {label(version.status)}</summary>
-        <VersionInspector load={() => api.roles.getDraft(role.id, version.id)} /></details>
-    </li>)}</ul></details>
     {confirming === role.id
       ? <div className="notice danger">
           <strong className="block">{t("removeRoleTitle")}</strong>
@@ -95,7 +89,7 @@ export function RoleListPage() {
           </div>
         </div>
       : <div className="button-row">
-          <Link className="button" to={`/roles/${role.id}`}>{t("editFuture")}</Link>
+          <Link className="button" to={`/roles/${role.id}`}>{t("editRole")}</Link>
           <button className="button danger" type="button" disabled={busy} onClick={() => setConfirming(role.id)}>{t("remove")}</button>
         </div>}
   </article>;
