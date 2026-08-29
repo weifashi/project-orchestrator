@@ -56,7 +56,7 @@ function CreateRoleForm({ busy, onCancel, onSubmit }: {
 }
 
 export function RoleListPage() {
-  const api = useApi(), { t, label } = useI18n();
+  const api = useApi(), { t, label, named } = useI18n();
   const [reload, setReload] = useState(0), [creating, setCreating] = useState(false),
     [confirming, setConfirming] = useState(""), [message, setMessage] = useState(""), [busy, setBusy] = useState(false);
   // 一次取全量（含已移除），前端拆成"在用"与"已移除"两组，省一次往返。
@@ -72,7 +72,7 @@ export function RoleListPage() {
 
   const card = (role: RoleSummary) => <article className="card role-card span-4" key={role.id}>
     <div className="page-head">
-      <div><strong>{label(role.slug)}</strong><small className="block">{role.slug} · v{role.version_number ?? "—"}</small></div>
+      <div><strong>{named(role.slug, role.name)}</strong><small className="block">{role.slug} · v{role.version_number ?? "—"}</small></div>
       <Badge>{role.is_builtin ? t("builtin") : t("custom")}</Badge>
     </div>
     <p>{t("roleProtocol")}</p>
@@ -117,7 +117,7 @@ export function RoleListPage() {
           <summary>{t("removedRoles")} ({removed.length})</summary>
           {removed.length === 0 ? <p className="muted">{t("noRemovedRoles")}</p> : <ul>{removed.map((role) => <li key={role.id}>
             <div className="page-head">
-              <div><strong>{label(role.slug)}</strong><small className="block">{role.slug} · {role.is_builtin ? t("builtin") : t("custom")}</small></div>
+              <div><strong>{named(role.slug, role.name)}</strong><small className="block">{role.slug} · {role.is_builtin ? t("builtin") : t("custom")}</small></div>
               <div className="button-row">
                 <button className="button" type="button" disabled={busy}
                   onClick={() => act(api.roles.restore(role.id), t("roleRestored"))}>{t("restore")}</button>

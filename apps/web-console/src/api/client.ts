@@ -176,8 +176,8 @@ export function createApiClient(options: ClientOptions = {}) {
             : `/api/read/role-drafts/${encodeURIComponent(id)}${source ? "?source=published" : ""}`,
         ),
       getVersion: (versionId: string) =>
-        request<WorkflowDraft>(
-          `/api/read/workflow-versions/${encodeURIComponent(versionId)}`,
+        request<RoleDraft>(
+          `/api/read/role-versions/${encodeURIComponent(versionId)}`,
         ),
       saveDraft: async (
         id: string,

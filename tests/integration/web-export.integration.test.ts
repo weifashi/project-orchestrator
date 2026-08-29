@@ -148,6 +148,37 @@ it("exports one Run as versioned JSON and Markdown without runtime secrets or ac
   fixture.db.close();
 });
 
+it("degrades one unreadable CAS object instead of failing the whole export", async () => {
+  const fixture = seededExportFixture();
+  const app = buildWebListener({
+    db: fixture.db,
+    content: fixture.content,
+    sessionSecret: "session-secret",
+    allowedOrigins: ["https://public.example"],
+    allowedHosts: ["127.0.0.1"],
+    lanOrigins: ["http://127.0.0.1:3847"],
+  });
+  // 让内容库对任何读取都失败，模拟对象缺失/损坏。
+  const readFailure = new Error("content object missing");
+  fixture.content.read = () => { throw readFailure; };
+  fixture.content.verify = () => { throw readFailure; };
+
+  const json = await app.inject({ method: "GET", url: "/api/read/run-exports/run-export?format=json", headers: { host: "127.0.0.1" } });
+  expect(json.statusCode).toBe(200);
+  const body = json.json() as { data: Record<string, unknown> };
+  // 结构性数据照常导出，只有读不到的正文降级成错误标记。
+  expect(body.data["run"]).toMatchObject({ id: "run-export" });
+  expect(body.data["workflow_snapshot"]).toBeNull();
+  expect(body.data["workflow_snapshot_error"]).toBe("content unavailable");
+  expect(body.data["artifacts"]).toMatchObject([{ id: "artifact-export", content_error: "content unavailable" }]);
+  expect(body.data["memories"]).toMatchObject([{ title: "Storage decision", content: null, content_error: "content unavailable" }]);
+
+  const memories = await app.inject({ method: "GET", url: "/api/read/memory-exports?format=json", headers: { host: "127.0.0.1" } });
+  expect(memories.statusCode).toBe(200);
+  await app.close();
+  fixture.db.close();
+});
+
 it("exports only the selected project's memory records", async () => {
   const fixture = seededExportFixture();
   const app = buildWebListener({

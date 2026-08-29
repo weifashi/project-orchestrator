@@ -5,7 +5,7 @@ import { useApi } from "../api/context";
 import { CanvasDrawer } from "../components/canvas-drawer";
 import { ErrorPanel } from "../components/error-panel";
 import { WorkflowCanvas } from "../components/workflow-canvas";
-import { createCanvasGroup, toggleCanvasGroup } from "../components/workflow-graph";
+import { createCanvasGroup, removeGraphSelection, toggleCanvasGroup } from "../components/workflow-graph";
 import { useLoad } from "./use-load";
 import { useI18n } from "../i18n";
 
@@ -57,8 +57,12 @@ export function WorkflowEditorPage() {
   if (!draft) return <div className="page"><h1 tabIndex={-1}>{t("workflowEditor")}</h1><p role="status">{t("loading")}</p></div>;
   const patchStage = (patch: Partial<NonNullable<typeof stage>>) => stage && applyEnvelope({ ...draft.envelope, data: { ...draft.envelope.data, stages: draft.envelope.data.stages.map((item) => item.key === selected ? { ...item, ...patch } : item) } });
   const removeSelected = () => {
-    if (!stage || stage.mandatory_gate) return;
-    applyEnvelope({ ...draft.envelope, data: { ...draft.envelope.data, stages: draft.envelope.data.stages.filter((item) => item.key !== stage.key), edges: draft.envelope.data.edges.filter((edge) => edge.from !== stage.key && edge.to !== stage.key) } }); setSelected(undefined);
+    if (!stage) return;
+    // 走 removeGraphSelection：它同时清理 canvas.nodes 与 groups[].stage_keys，
+    // 并自带强制安全门守卫（命中时原样返回）。
+    const next = removeGraphSelection(draft.envelope, [stage.key], []);
+    if (next === draft.envelope) return;
+    applyEnvelope(next); setSelected(undefined);
   };
   return <div className="page canvas-page">
     <header className="canvas-page-head"><div><span className="eyebrow">{t("workflowDraft")} · {t("revision")} {draft.revision}</span><h1 tabIndex={-1}>{label(draft.envelope.data.slug)}</h1></div><span className={`canvas-save-state ${past.length ? "is-dirty" : ""}`} role="status" aria-live="polite">{message || (past.length ? t("unsavedChanges") : t("onlyFutureRun"))}</span><div className="button-row"><button className="button ghost" type="button" disabled={!past.length} onClick={() => setPast((items) => { const next = items.at(-1); if (!next) return items; setDraft((current) => current ? (setFuture((history) => [...history, current.envelope]), { ...current, envelope: next }) : current); return items.slice(0, -1); })}>{t("undo")}</button><button className="button ghost" type="button" disabled={!future.length} onClick={() => setFuture((items) => { const next = items.at(-1); if (!next) return items; setDraft((current) => current ? (setPast((history) => [...history, current.envelope]), { ...current, envelope: next }) : current); return items.slice(0, -1); })}>{t("redo")}</button><button className="button" type="button" onClick={() => void api.workflows.getDraft(id, true).then((published) => { setDraft((current) => current ? { ...current, envelope: published.envelope } : published); setPast([]); setFuture([]); setMessage(t("draftLoaded")); }).catch(() => setMessage(t("operationFailed")))}>{t("copyTemplate")}</button><button className="button" type="button" disabled={busy} onClick={() => void save()}>{t("saveDraft")}</button><button className="button primary" type="button" disabled={busy} onClick={() => void publish()}>{t("publish")}</button></div></header>

@@ -8,9 +8,9 @@ import { VersionInspector } from "../components/version-inspector";
 import { useI18n } from "../i18n";
 import { useLoad } from "./use-load";
 export function WorkflowListPage() {
-  const api = useApi(), { t, label, locale } = useI18n(), { data, error } = useLoad(() => api.workflows.list(), [api]);
+  const api = useApi(), { t, label, locale, named } = useI18n(), { data, error } = useLoad(() => api.workflows.list(), [api]);
   const [query, setQuery] = useState("");
-  const visible = useMemo(() => (data ?? []).filter((item) => `${label(item.slug)} ${item.slug} ${item.task_type}`.toLowerCase().includes(query.toLowerCase())), [data, label, query]);
+  const visible = useMemo(() => (data ?? []).filter((item) => `${named(item.slug, item.name)} ${item.slug} ${item.task_type}`.toLowerCase().includes(query.toLowerCase())), [data, label, query]);
   return <div className="page">
     <div className="page-head">
       <div>
@@ -24,9 +24,9 @@ export function WorkflowListPage() {
       </label>
     </div>
     {error ? <ErrorPanel error={error} /> : data === undefined ? <p className="muted" role="status">{t("loading")}</p> : !visible.length ? <EmptyState /> : <div className="workflow-list">{visible.map((item) => <article className="workflow-list-item" key={item.id}>
-      <span className="workflow-list-mark" aria-hidden>{label(item.slug).slice(0, 1)}</span>
+      <span className="workflow-list-mark" aria-hidden>{named(item.slug, item.name).slice(0, 1)}</span>
       <div className="workflow-list-primary">
-        <Link className="row-link" to={`/workflows/${item.id}`}>{label(item.slug)}</Link>
+        <Link className="row-link" to={`/workflows/${item.id}`}>{named(item.slug, item.name)}</Link>
         <small>{item.slug}</small>
       </div>
       <div className="workflow-list-stats" aria-label={`${t("version")}、${t("stagesCount")}、${t("status")}`}>

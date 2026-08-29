@@ -52,6 +52,26 @@ it("splits the catalog into present roles and a removed section", async () => {
   expect(within(removed.closest("details")!).getByText("代码调查")).toBeInTheDocument();
 });
 
+it("shows a custom role by its name, not its raw slug", async () => {
+  const api = fakeApi({
+    roles: {
+      ...fakeApi().roles,
+      list: async () => [
+        role(),                                                     // 内置：有译文，显示译文
+        role({ id: "role-custom", slug: "release-notes", name: "Release Notes", is_builtin: false }),
+        role({ id: "role-gone", slug: "audit-trail", name: "Audit Trail", is_builtin: false, removed_at: "2026-08-29T00:00:00Z" }),
+      ],
+    },
+  });
+  mount(api);
+
+  expect(await screen.findByText("测试验证")).toBeVisible();       // label() 命中译文
+  expect(screen.getByText("Release Notes")).toBeVisible();          // 无译文 → 回退 name
+  expect(screen.queryByRole("heading", { name: "release-notes" })).not.toBeInTheDocument();
+  // 已移除区同样兜底
+  expect(within(screen.getByText(/已移除角色/).closest("details")!).getByText("Audit Trail")).toBeInTheDocument();
+});
+
 it("warns that removal keeps history and is not a security revocation", async () => {
   const remove = vi.fn(async () => ({ removed: true }));
   const api = fakeApi({

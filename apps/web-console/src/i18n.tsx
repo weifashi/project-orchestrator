@@ -44,13 +44,24 @@ const copy: Record<Locale, Copy> = {
   },
 };
 
-type I18n = Readonly<{ locale: Locale; setLocale: (locale: Locale) => void; t: (key: string) => string; label: (value: string) => string }>;
+type I18n = Readonly<{
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: (key: string) => string;
+  label: (value: string) => string;
+  /**
+   * 显示名：有译文用译文，没有就退回实体自己的名字。
+   * label() 查不到时原样返回 slug，直接拿它当标题会让自定义角色/流程显示成 raw slug。
+   */
+  named: (slug: string, fallback: string) => string;
+}>;
 const defaultLocale: Locale = "zh-CN";
 const defaultI18n: I18n = {
   locale: defaultLocale,
   setLocale: () => undefined,
   t: (key) => copy[defaultLocale][key] ?? key,
   label: (raw) => copy[defaultLocale][raw] ?? raw,
+  named: (slug, fallback) => copy[defaultLocale][slug] ?? fallback ?? slug,
 };
 const I18nContext = createContext<I18n>(defaultI18n);
 
@@ -68,6 +79,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     locale, setLocale,
     t: (key) => copy[locale][key] ?? key,
     label: (raw) => copy[locale][raw] ?? raw,
+    named: (slug, fallback) => copy[locale][slug] ?? fallback ?? slug,
   }), [locale]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }

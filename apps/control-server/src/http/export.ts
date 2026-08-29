@@ -22,6 +22,13 @@ const contentJson = (content: ContentStore, objectId: unknown): unknown =>
   json(Buffer.from(content.read(String(objectId))).toString("utf8"));
 const optionalContentJson = (content: ContentStore, objectId: unknown): unknown | null =>
   typeof objectId === "string" ? contentJson(content, objectId) : null;
+/** 读一个 CAS 对象；缺失或损坏时返回错误标记而不是抛出，避免一个坏对象让整份导出 500。 */
+const safeContentJson = (content: ContentStore, objectId: unknown): { value: unknown; error?: string } => {
+  try { return { value: optionalContentJson(content, objectId) }; }
+  catch { return { value: null, error: "content unavailable" }; }
+};
+const withContent = (base: Row, field: string, read: { value: unknown; error?: string }): Row =>
+  read.error === undefined ? { ...base, [field]: read.value } : { ...base, [field]: null, [`${field}_error`]: read.error };
 
 function memoryRows(db: Database.Database, content: ContentStore, projectId?: string, sourceRunId?: string): Row[] {
   const filters: string[] = [], parameters: string[] = [];
@@ -40,8 +47,9 @@ function memoryRows(db: Database.Database, content: ContentStore, projectId?: st
       title: memory["title"], summary: memory["summary"], retention_policy: memory["retention_policy"],
       created_at: memory["created_at"], content_object_id: memory["content_object_id"],
       sha256: memory["sha256"], media_type: memory["media_type"], size_bytes: memory["size_bytes"],
-      content: contentJson(content, memory["content_object_id"]),
-    }));
+    }))
+    .map((memory) => withContent(memory, "content",
+      safeContentJson(content, memory["content_object_id"])));
 }
 
 export function buildRunExport(
@@ -86,15 +94,18 @@ export function buildRunExport(
     FROM run_iterations WHERE run_id=? ORDER BY group_key,iteration_number`, runId)
     .map((iteration) => ({
       id: iteration["id"], group_key: iteration["group_key"], iteration_number: iteration["iteration_number"],
-      status: iteration["status"], findings: optionalContentJson(content, iteration["findings_manifest_object_id"]),
+      status: iteration["status"],
       created_at: iteration["created_at"], completed_at: iteration["completed_at"],
-    }));
+      findings_manifest_object_id: iteration["findings_manifest_object_id"],
+    }))
+    .map((iteration) => withContent(iteration, "findings",
+      safeContentJson(content, iteration["findings_manifest_object_id"])));
   const artifacts = rows(db, `SELECT a.id,a.stage_attempt_id,a.artifact_type,a.content_object_id,a.source_path,
     a.summary,a.producer_role_version_id,a.created_at,o.sha256,o.media_type,o.size_bytes
     FROM artifacts a JOIN content_objects o ON o.id=a.content_object_id
     WHERE a.run_id=? ORDER BY a.created_at,a.id`, runId).map((artifact) => {
-      content.verify(String(artifact["content_object_id"]));
-      return artifact;
+      try { content.verify(String(artifact["content_object_id"])); return artifact; }
+      catch { return { ...artifact, content_error: "content unavailable" }; }
     });
   const confirmations = rows(db, `SELECT id,stage_run_id,stage_attempt_id,confirmation_type,request_summary,status,
     requested_at,expires_at,decided_at,consumed_at FROM confirmation_requests WHERE run_id=? ORDER BY requested_at,id`, runId);
@@ -118,7 +129,7 @@ export function buildRunExport(
         working_tree_fingerprint: snapshot["working_tree_fingerprint"],
         created_at: snapshot["created_at"],
       },
-      workflow_snapshot: contentJson(content, snapshot["workflow_object_id"]),
+      ...withContent({}, "workflow_snapshot", safeContentJson(content, snapshot["workflow_object_id"])),
       stages,
       attempts,
       iterations,

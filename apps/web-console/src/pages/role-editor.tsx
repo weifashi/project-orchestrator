@@ -9,7 +9,7 @@ import { useI18n } from "../i18n";
 import { CAPABILITIES } from "../capabilities";
 const capabilities: string[] = [...CAPABILITIES];
 export function RoleEditorPage() {
-  const { t, label } = useI18n();
+  const { t, label, named } = useI18n();
   const { id = "" } = useParams(),
     api = useApi(),
     loaded = useLoad(() => api.roles.getDraft(id), [api, id]),
@@ -105,7 +105,7 @@ export function RoleEditorPage() {
           <span className="eyebrow">
             {t("roleDraft")} · {t("revision")} {draft.revision}
           </span>
-          <h1 tabIndex={-1}>{label(data.slug)}</h1>
+          <h1 tabIndex={-1}>{named(data.slug, data.display_name)}</h1>
           <p className="muted">
             {t("publishIntersection")}
           </p>

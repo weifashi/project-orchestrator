@@ -17,6 +17,24 @@ describe("workflow canvas graph", () => {
     expect(removeGraphSelection(input, ["testing"], [])).toBe(input);
     expect(removeGraphSelection(input, [], ["testing-operations-1"]).data.edges).toEqual([{ from: "requirements", to: "testing", edge_type: "requires" }]);
   });
+  // 节点编辑器的「移除这个角色」曾自己拼 stages/edges，漏清 canvas.nodes 与 groups[].stage_keys，
+  // 导致折叠分组计数陈旧、孤儿条目被持久化。现在统一走 removeGraphSelection。
+  it("clears canvas nodes and group membership when a stage is removed", () => {
+    const grouped = createCanvasGroup(workflow(), "delivery", "交付", ["requirements", "operations"]);
+    const placed = { ...grouped, data: { ...grouped.data, canvas: { ...grouped.data.canvas, nodes: [
+      { stage_key: "requirements", x: 0, y: 0 }, { stage_key: "operations", x: 90, y: 0 },
+    ] } } } as typeof grouped;
+
+    const next = removeGraphSelection(placed, ["operations"], []);
+
+    expect(next.data.stages.map((item) => item.key)).toEqual(["requirements", "testing"]);
+    expect(next.data.canvas?.nodes?.map((node) => node.stage_key)).toEqual(["requirements"]);
+    expect(next.data.canvas?.groups?.[0]?.stage_keys).toEqual(["requirements"]);
+  });
+  it("drops a canvas group once its last stage is removed", () => {
+    const grouped = createCanvasGroup(workflow(), "solo", "单节点组", ["operations"]);
+    expect(removeGraphSelection(grouped, ["operations"], []).data.canvas?.groups).toEqual([]);
+  });
   it("keeps drag positions inside the canvas until the pointer is released", () => {
     const moving = trackCanvasNodePositions({}, [
       { id: "requirements", type: "position", position: { x: 320, y: 48 }, dragging: true },
