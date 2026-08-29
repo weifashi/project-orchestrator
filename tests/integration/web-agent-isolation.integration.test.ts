@@ -204,3 +204,41 @@ it("keeps LAN access account-free only for explicitly configured hosts and origi
   await app.close();
   db.close();
 });
+
+it("keeps the passwordless bypass on the loopback deployment it was configured for", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "web-loopback-"));
+  dirs.push(dir);
+  const db = openDatabase(join(dir, "db.sqlite"));
+  migrate(db);
+  // 默认安装的形态：绑 0.0.0.0，但只配了回环 lan origin。
+  const app = buildWebListener({
+    db,
+    content: new ContentStore(join(dir, "objects"), db),
+    sessionSecret: "session-secret",
+    allowedOrigins: ["https://public.example"],
+    allowedHosts: ["127.0.0.1", "localhost"],
+    lanOrigins: ["http://127.0.0.1:3847", "http://localhost:3847"],
+  });
+  const status = "/api/read/system/status";
+
+  // 本机免登录照旧可用。
+  expect((await app.inject({ method: "GET", url: status, headers: { host: "127.0.0.1" }, remoteAddress: "127.0.0.1" })).statusCode).toBe(200);
+  expect((await app.inject({ method: "GET", url: status, headers: { host: "localhost" }, remoteAddress: "::1" })).statusCode).toBe(200);
+
+  // 局域网机器伪造 Host: localhost 不再跳过鉴权 —— Host 头是客户端自填的，不能当凭据。
+  for (const remoteAddress of ["192.168.1.23", "10.0.0.7", "172.20.5.9", "::ffff:192.168.1.23"]) {
+    expect((await app.inject({ method: "GET", url: status, headers: { host: "localhost" }, remoteAddress })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: status, headers: { host: "127.0.0.1" }, remoteAddress })).statusCode).toBe(403);
+  }
+  // 写操作同样挡住，即便带上合法的 lan origin。
+  expect((await app.inject({
+    method: "POST", url: "/api/config/roles",
+    headers: { host: "localhost", origin: "http://127.0.0.1:3847" },
+    payload: { slug: "intruder", display_name: "Intruder", responsibilities: ["x"], requested_capabilities: [] },
+    remoteAddress: "192.168.1.23",
+  })).statusCode).toBe(403);
+  expect(db.prepare("SELECT count(*) AS count FROM roles WHERE slug='intruder'").get()).toEqual({ count: 0 });
+
+  await app.close();
+  db.close();
+});

@@ -39,8 +39,15 @@ const hostName = (raw: string | undefined): string | undefined => {
   if (raw.startsWith("[")) return raw.slice(1, raw.indexOf("]")).toLowerCase();
   return raw.split(":", 1)[0]?.toLowerCase();
 };
+const normalizedAddress = (raw: string): string => raw.replace(/^::ffff:/, "").toLowerCase();
+/** 回环主机名：只配了这些的部署，信任半径必须止于本机。 */
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+const loopbackAddress = (raw: string): boolean => {
+  const ip = normalizedAddress(raw);
+  return ip === "::1" || ip.split(".")[0] === "127";
+};
 const trustedAddress = (raw: string): boolean => {
-  const ip = raw.replace(/^::ffff:/, "").toLowerCase();
+  const ip = normalizedAddress(raw);
   if (ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") || ip.startsWith("fe80:")) return true;
   const octets = ip.split(".").map(Number);
   return octets.length === 4 && octets.every(Number.isInteger) && (octets[0] === 10 || octets[0] === 127 || (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31) || (octets[0] === 192 && octets[1] === 168));
@@ -104,7 +111,14 @@ export function buildWebListener(input: WebListenerInput): WebListener {
   const secureCookies = [...allowedOrigins].some((origin) => origin.startsWith("https://"));
   const auth = createWebAuth(input.db, sessionSecret);
   const authenticated = (cookie: string | undefined) => auth.session(cookieValue(cookie, "po_session"));
-  const isTrustedLanRequest = (request: { headers: { host?: string | undefined }; ip: string }) => lanHosts.has(hostName(request.headers.host) ?? "") && trustedAddress(request.ip);
+  // 免登录的信任半径必须与运维实际配置的 lan origin 一致。
+  // Host 头由客户端自填，不能当凭据：只配了回环 origin 却放行整个 RFC1918 的话，
+  // 局域网里任意机器发一个 Host: localhost 就能跳过全部鉴权。
+  const isTrustedLanRequest = (request: { headers: { host?: string | undefined }; ip: string }) => {
+    const host = hostName(request.headers.host) ?? "";
+    if (!lanHosts.has(host)) return false;
+    return loopbackHosts.has(host) ? loopbackAddress(request.ip) : trustedAddress(request.ip);
+  };
   const publicPaths = new Set(["/health", "/bootstrap", "/bootstrap/register", "/bootstrap/login"]);
   app.decorate("closeEventStreams", () => closeEventStreams(eventStreams));
   app.addHook("onRequest", async (request, reply) => {
