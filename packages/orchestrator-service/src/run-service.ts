@@ -106,12 +106,14 @@ export class RunService {
         throw new Error('ADAPTER_CAPABILITY_INCOMPATIBLE');
       }
       const roleBundle = workflow.data.stages.map((stage) => {
-        const row = this.db.prepare(`SELECT v.content_object_id,v.status,r.slug,r.removed_at FROM role_versions v
+        const row = this.db.prepare(`SELECT v.content_object_id,v.status,r.slug,r.status AS role_status,r.removed_at FROM role_versions v
           JOIN roles r ON r.id=v.role_id WHERE v.id=?`)
           .get(stage.role_version_id) as
-          { content_object_id: string; status: string; slug: string; removed_at: string | null } | undefined;
+          { content_object_id: string; status: string; slug: string; role_status: string; removed_at: string | null } | undefined;
         if (!row || row.status !== 'published') throw new Error(`POLICY_VIOLATION: unavailable role ${stage.role_version_id}`);
         if (row.removed_at !== null) throw new Error(`POLICY_VIOLATION: removed role ${row.slug}`);
+        // disabled 不可用于新 Run，archived 仅保留历史。已存在的 Run 走冻结快照，不重跑这段校验。
+        if (row.role_status !== 'active') throw new Error(`POLICY_VIOLATION: ${row.role_status} role ${row.slug}`);
         this.content.verify(row.content_object_id);
         return {
           roleVersionId: stage.role_version_id,

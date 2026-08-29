@@ -61,13 +61,13 @@ SELECT content_object_id,status FROM role_versions WHERE id=?
 
 在此处 join `roles`，`removed_at` 非空时同样拒绝，错误信息指明角色已被移除。流程模板发布校验同样加此判断。
 
-### 已知缺陷（本次不修）
-主设计文档写明"`disabled` 角色不可用于新模板发布或 create_run"。这两半只实现了一半：
+### 角色状态拦截（2026-08-29 补齐）
+主设计文档写明"`disabled` 角色不可用于新模板发布或 create_run"。这两半原先只实现了一半：
 
-- **模板发布**已强制。`ConfigService.validateWorkflowPolicy` 检查 `role.roleStatus !== 'active'` 并拒绝。
-- **create_run 没有**。`run-service.ts` 只查 `role_versions.status`，不查 `roles.status`，所以把角色停用后仍可用它创建 Run。
+- **模板发布**一直有。`ConfigService.validateWorkflowPolicy` 检查 `role.roleStatus !== 'active'` 并拒绝。
+- **create_run 原先没有**。`run-service.ts` 只查 `role_versions.status`，不查 `roles.status`，停用角色后仍可用它创建 Run。
 
-本次在同一处补的是 `removed_at` 拦截；`disabled` 这半边的缺口早于本次改动存在，不在本次范围内，单独记录待办。
+现已在同一处补上：`roles.status !== 'active'` 一律拒绝，`disabled` 与 `archived` 都挡。已存在的 Run 走冻结快照，不重跑这段校验，因此不受影响。
 
 ## 页面与流转
 ```text
