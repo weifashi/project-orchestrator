@@ -9,7 +9,7 @@
     {
       "name": "project-orchestrator",
       "description": "Local multi-role project workflows.",
-      "version": "0.1.42",
+      "version": "0.1.43",
       "source": "./plugins/project-orchestrator"
     }
   ]
