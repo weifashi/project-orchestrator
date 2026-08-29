@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "project-orchestrator",
-  "version": "0.1.44",
+  "version": "0.1.45",
   "description": "Run versioned local multi-role project workflows from Claude Code",
   "author": {
     "name": "weifashi"

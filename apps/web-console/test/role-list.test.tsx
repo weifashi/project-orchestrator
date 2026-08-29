@@ -77,8 +77,11 @@ it("shows a custom role by its name, not its raw slug", async () => {
   expect(await screen.findByText("测试验证")).toBeVisible();       // label() 命中译文
   expect(screen.getByText("Release Notes")).toBeVisible();          // 无译文 → 回退 name
   expect(screen.queryByRole("heading", { name: "release-notes" })).not.toBeInTheDocument();
-  // 已移除区同样兜底
-  expect(within(screen.getByText(/已移除角色/).closest("details")!).getByText("Audit Trail")).toBeInTheDocument();
+
+  // 已移除区同样兜底（现在收在折叠开关后面）
+  await userEvent.click(screen.getByRole("button", { name: "已移除角色 (1)" }));
+  expect(screen.getByText("Audit Trail")).toBeVisible();
+  expect(screen.queryByText("audit-trail")).not.toBeInTheDocument();
 });
 
 it("warns that removal keeps history and is not a security revocation", async () => {
