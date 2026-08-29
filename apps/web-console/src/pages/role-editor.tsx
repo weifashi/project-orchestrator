@@ -3,7 +3,6 @@ import { useParams } from "react-router-dom";
 import type { RoleDraft } from "../api/types";
 import { useApi } from "../api/context";
 import { ErrorPanel } from "../components/error-panel";
-import { VersionBanner } from "../components/version-banner";
 import { useLoad } from "./use-load";
 import { useI18n } from "../i18n";
 import { CAPABILITIES } from "../capabilities";
@@ -61,37 +60,31 @@ export function RoleEditorPage() {
         ? data.requested_capabilities.filter((x) => x !== cap)
         : [...data.requested_capabilities, cap],
     );
-  const act = async (kind: "save" | "publish") => {
+  const save = async () => {
     setBusy(true);
     setMessage("");
     try {
-      if (kind === "save") {
-        const saved = await api.roles.saveDraft(id, draft);
-        setDraft(saved);
-        setMessage(`${t("savedMessage")} · ${t("revision")} ${saved.revision}`);
-      } else {
-        const result = (await api.roles.publish(
-          id,
-          draft.envelope,
-          draft.revision,
-          status,
-        )) as {
-          effectiveCapabilities?: string[];
-        };
-        setDraft(await api.roles.getDraft(id));
-        catalog.setData((current) =>
-          current?.map((role) =>
-            role.id === id && status ? { ...role, status } : role,
-          ),
-        );
-        setMessage(
-          `${t("publishedMessage")} ${t("requestCapabilities")}：${result.effectiveCapabilities?.map(label).join("、") || t("unknown")}`,
-        );
-      }
+      const result = (await api.roles.publish(
+        id,
+        draft.envelope,
+        draft.revision,
+        status,
+      )) as {
+        effectiveCapabilities?: string[];
+      };
+      setDraft(await api.roles.getDraft(id));
+      catalog.setData((current) =>
+        current?.map((role) =>
+          role.id === id && status ? { ...role, status } : role,
+        ),
+      );
+      setMessage(
+        `${t("roleChangesApplied")} ${t("publishIntersection")}：${result.effectiveCapabilities?.map(label).join("、") || t("unknown")}`,
+      );
     } catch (error) {
       setMessage(
         error instanceof Error
-          ? `${kind === "save" ? t("saveDraft") : t("publish")}：${error.message}`
+          ? `${t("saveRole")}：${error.message}`
           : t("operationFailed"),
       );
     } finally {
@@ -102,46 +95,16 @@ export function RoleEditorPage() {
     <div className="page">
       <div className="page-head">
         <div>
-          <span className="eyebrow">
-            {t("roleDraft")} · {t("revision")} {draft.revision}
-          </span>
           <h1 tabIndex={-1}>{label(data.slug)}</h1>
-          <p className="muted">
-            {t("publishIntersection")}
-          </p>
+          <p className="muted">{t("roleEditHint")}</p>
         </div>
       </div>
-      <VersionBanner />
       {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
       <div className="toolbar">
         <span role="status" aria-live="polite">
           {message}
         </span>
         <div className="button-row">
-          <button
-            className="button"
-            onClick={() => {
-              void api.roles
-                .getDraft(id, true)
-                .then((published) => {
-                  setDraft((current) =>
-                    current
-                      ? { ...current, envelope: published.envelope }
-                      : published,
-                  );
-                  setMessage(t("restoreMessage"));
-                })
-                .catch((error: unknown) =>
-                  setMessage(
-                    error instanceof Error
-                      ? `${t("copyPublished")}：${error.message}`
-                      : t("operationFailed"),
-                  ),
-                );
-            }}
-          >
-            {t("copyPublished")}
-          </button>
           {catalog.data?.find((role) => role.id === id)?.is_builtin === true && (
             <button
               className="button"
@@ -175,17 +138,6 @@ export function RoleEditorPage() {
             </button>
           )}
           <button
-            className="button"
-            disabled={
-              busy ||
-              catalog.data?.find((role) => role.id === id)?.status ===
-                "archived"
-            }
-            onClick={() => void act("save")}
-          >
-            {t("saveDraft")}
-          </button>
-          <button
             className="button primary"
             disabled={
               busy ||
@@ -193,9 +145,9 @@ export function RoleEditorPage() {
               catalog.data?.find((role) => role.id === id)?.status ===
                 "archived"
             }
-            onClick={() => void act("publish")}
+            onClick={() => void save()}
           >
-            {t("publish")}
+            {t("saveRole")}
           </button>
         </div>
       </div>

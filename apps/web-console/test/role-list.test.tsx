@@ -48,6 +48,10 @@ it("keeps removed roles hidden until the compact toggle is used", async () => {
   mount(api);
 
   expect(await screen.findByText("测试验证")).toBeVisible();
+  expect(screen.getByRole("link", { name: "编辑" })).toBeVisible();
+  expect(screen.queryByText("版本化角色协议")).not.toBeInTheDocument();
+  expect(screen.queryByText("历史版本")).not.toBeInTheDocument();
+  expect(screen.queryByText(/· v1/)).not.toBeInTheDocument();
   const toggle = screen.getByRole("button", { name: "已移除角色 (1)" });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByText("代码调查")).not.toBeInTheDocument();
@@ -70,7 +74,7 @@ it("warns that removal keeps history and is not a security revocation", async ()
   await screen.findByText("测试验证");
 
   await userEvent.click(screen.getByRole("button", { name: "移除" }));
-  expect(screen.getByText(/历史任务记录和已发布版本全部保留/)).toBeVisible();
+  expect(screen.getByText(/历史任务记录和历史配置全部保留/)).toBeVisible();
   expect(screen.getByText(/这不是安全撤销/)).toBeVisible();
 
   // 确认面板取代了原来的「移除」按钮，页面上此刻只剩确认那一个。

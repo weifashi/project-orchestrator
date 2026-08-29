@@ -1,6 +1,6 @@
 {
   "name": "project-orchestrator",
-  "version": "0.1.44",
+  "version": "0.1.45",
   "description": "Run versioned local multi-role project workflows from Codex.",
   "author": {
     "name": "weifashi"

@@ -51,10 +51,10 @@ test("workflow and role drafts publish only future immutable versions", async ({
       response.request().method() === "POST" &&
       /\/api\/config\/roles\/[^/]+\/publish$/.test(response.url()),
   );
-  await page.getByRole("button", { name: "发布新版本" }).click();
+  await page.getByRole("button", { name: "保存" }).click();
   expect((await rolePublish).ok()).toBe(true);
   await expect(page.getByRole("status")).toContainText(
-    /已发布不可变新版本|Published a new immutable version/,
+    /之后的新任务|future tasks/,
   );
   await expect(page.getByLabel("显示名称")).toHaveValue("Testing E2E");
 });
