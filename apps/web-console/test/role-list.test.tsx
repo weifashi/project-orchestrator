@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -35,7 +35,7 @@ const mount = (api: ReturnType<typeof fakeApi>) =>
     </ApiContext.Provider>,
   );
 
-it("splits the catalog into present roles and a removed section", async () => {
+it("keeps removed roles hidden until the compact toggle is used", async () => {
   const api = fakeApi({
     roles: {
       ...fakeApi().roles,
@@ -48,8 +48,17 @@ it("splits the catalog into present roles and a removed section", async () => {
   mount(api);
 
   expect(await screen.findByText("测试验证")).toBeVisible();
-  const removed = screen.getByText(/已移除角色/);
-  expect(within(removed.closest("details")!).getByText("代码调查")).toBeInTheDocument();
+  const toggle = screen.getByRole("button", { name: "已移除角色 (1)" });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByText("代码调查")).not.toBeInTheDocument();
+
+  await userEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByRole("region", { name: "已移除角色" })).toBeVisible();
+  expect(screen.getByText("代码调查")).toBeVisible();
+
+  await userEvent.click(toggle);
+  expect(screen.queryByText("代码调查")).not.toBeInTheDocument();
 });
 
 it("shows a custom role by its name, not its raw slug", async () => {
@@ -155,7 +164,7 @@ it("offers a factory reset only for removed built-in roles", async () => {
     },
   });
   mount(api);
-  await screen.findByText(/已移除角色/);
+  await userEvent.click(await screen.findByRole("button", { name: "已移除角色 (2)" }));
 
   expect(screen.getAllByRole("button", { name: "恢复" })).toHaveLength(2);
   const resets = screen.getAllByRole("button", { name: "恢复为内置默认" });

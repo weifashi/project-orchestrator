@@ -58,7 +58,8 @@ function CreateRoleForm({ busy, onCancel, onSubmit }: {
 export function RoleListPage() {
   const api = useApi(), { t, label, named } = useI18n();
   const [reload, setReload] = useState(0), [creating, setCreating] = useState(false),
-    [confirming, setConfirming] = useState(""), [message, setMessage] = useState(""), [busy, setBusy] = useState(false);
+    [showRemoved, setShowRemoved] = useState(false), [confirming, setConfirming] = useState(""),
+    [message, setMessage] = useState(""), [busy, setBusy] = useState(false);
   // 一次取全量（含已移除），前端拆成"在用"与"已移除"两组，省一次往返。
   const { data, error } = useLoad(() => api.roles.list(true), [api, reload]);
 
@@ -105,16 +106,20 @@ export function RoleListPage() {
   return <div className="page">
     <div className="page-head">
       <div><span className="eyebrow">{t("capabilityConstrained")}</span><h1 tabIndex={-1}>{t("roles")}</h1><p className="muted">{t("roleDescription")}</p></div>
-      <button className="button primary" type="button" disabled={busy || creating} onClick={() => { setCreating(true); setMessage(""); }}>{t("newRole")}</button>
+      <div className="button-row">
+        <button className="button ghost removed-roles-toggle" type="button" aria-expanded={showRemoved}
+          aria-controls="removed-roles-panel" onClick={() => setShowRemoved((visible) => !visible)}>
+          <span aria-hidden="true">{showRemoved ? "▾" : "▸"}</span> {t("removedRoles")} ({removed.length})
+        </button>
+        <button className="button primary" type="button" disabled={busy || creating} onClick={() => { setCreating(true); setMessage(""); }}>{t("newRole")}</button>
+      </div>
     </div>
     <p role="status" aria-live="polite" className="muted">{message}</p>
     {creating && <CreateRoleForm busy={busy} onCancel={() => setCreating(false)}
       onSubmit={(input) => act(api.roles.create(input), t("roleCreated"))} />}
     {error ? <ErrorPanel error={error} /> : data === undefined ? <p className="muted" role="status">{t("loading")}</p> : <div className="grid">
       {present.length ? present.map(card) : <EmptyState />}
-      <section className="card span-12">
-        <details>
-          <summary>{t("removedRoles")} ({removed.length})</summary>
+      {showRemoved && <section id="removed-roles-panel" className="card span-12" role="region" aria-label={t("removedRoles")}>
           {removed.length === 0 ? <p className="muted">{t("noRemovedRoles")}</p> : <ul>{removed.map((role) => <li key={role.id}>
             <div className="page-head">
               <div><strong>{named(role.slug, role.name)}</strong><small className="block">{role.slug} · {role.is_builtin ? t("builtin") : t("custom")}</small></div>
@@ -126,8 +131,7 @@ export function RoleListPage() {
               </div>
             </div>
           </li>)}</ul>}
-        </details>
-      </section>
+      </section>}
     </div>}
   </div>;
 }
