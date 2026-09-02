@@ -44,6 +44,7 @@ export const INTERNAL_TOOL_REQUEST_SCHEMAS = {
   }),
   heartbeat_run: leased('heartbeat_run', MODEL_VISIBLE_TOOL_SCHEMAS.heartbeat_run),
   begin_stage: leased('begin_stage', MODEL_VISIBLE_TOOL_SCHEMAS.begin_stage),
+  query_project_index: leased('query_project_index', MODEL_VISIBLE_TOOL_SCHEMAS.query_project_index),
   complete_stage: leased('complete_stage', MODEL_VISIBLE_TOOL_SCHEMAS.complete_stage),
   fail_stage: leased('fail_stage', MODEL_VISIBLE_TOOL_SCHEMAS.fail_stage),
   retry_stage: leased('retry_stage', MODEL_VISIBLE_TOOL_SCHEMAS.retry_stage),

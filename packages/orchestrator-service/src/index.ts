@@ -9,3 +9,5 @@ export * from './memory-service.js';
 export * from './confirmation-service.js';
 export * from './operation-service.js';
 export * from './capability-service.js';
+export * from './project-indexer.js';
+export * from './project-index-service.js';

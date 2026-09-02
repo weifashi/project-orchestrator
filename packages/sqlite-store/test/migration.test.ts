@@ -21,7 +21,7 @@ describe('foundation migration', () => {
 
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
     expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
-    expect(db.prepare('SELECT count(*) AS count FROM schema_migrations').get()).toEqual({ count: 4 });
+    expect(db.prepare('SELECT count(*) AS count FROM schema_migrations').get()).toEqual({ count: 5 });
     db.close();
   });
 

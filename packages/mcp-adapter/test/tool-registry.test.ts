@@ -3,10 +3,10 @@ import { AgentToolNames } from '@project-orchestrator/contracts';
 import { createToolRegistry } from '../src/tool-registry.js';
 
 describe('MCP tool registry', () => {
-  it('registers the exact nineteen model-visible tools and no Web or confirmation decision tool', () => {
+  it('registers the exact twenty model-visible tools and no Web or confirmation decision tool', () => {
     const registry = createToolRegistry({ invoke: async () => ({ ok: true }) });
     expect(registry.map((tool) => tool.name)).toEqual([...AgentToolNames]);
-    expect(registry).toHaveLength(19);
+    expect(registry).toHaveLength(20);
     expect(registry.map((tool) => tool.name)).not.toContain('submit_confirmation');
     expect(registry.map((tool) => tool.name).some((name) => name.startsWith('web_'))).toBe(false);
   });
@@ -32,7 +32,7 @@ describe('MCP tool registry', () => {
     const registry = createToolRegistry({ invoke: async () => ({ ok: true }) });
     expect(registry.filter((tool) => tool.classification === 'bootstrap').map((tool) => tool.name))
       .toEqual(['create_run', 'claim_run']);
-    expect(registry.filter((tool) => tool.classification === 'leased')).toHaveLength(17);
+    expect(registry.filter((tool) => tool.classification === 'leased')).toHaveLength(18);
   });
 
   it('returns a bounded stable error instead of arbitrary thrown content', async () => {

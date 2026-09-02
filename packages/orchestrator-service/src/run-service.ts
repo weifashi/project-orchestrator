@@ -10,6 +10,7 @@ import {
   type MemoryRetentionPolicy,
   type MemoryScope,
   type MemoryType,
+  type ProjectIndexQueryResult,
   SucceededStageOutputEnvelopeSchema,
   type StageOutputEnvelope,
   type RoleVersionEnvelope,
@@ -34,9 +35,14 @@ import { ConfirmationService, invalidateRunConfirmations } from './confirmation-
 import { RecoveryService } from './recovery-service.js';
 import { MemoryService } from './memory-service.js';
 import { readRunCapabilities, requireTrustedConfirmation } from './capability-service.js';
+import { ProjectIndexService, isProjectIndexAvailabilityError, type ProjectIndexer } from './project-index-service.js';
 
 const digest = (value: unknown): string => createHash('sha256').update(canonicalJson(value)).digest('hex');
 type RunRecord = RunRow;
+type ProjectIndexJob = Readonly<{
+  attemptId: string;
+  promise: Promise<unknown | undefined>;
+}>;
 type AttemptRow = { id: string; stage_run_id: string; attempt_number: number; status: string };
 type PublishedWorkflowRow = { id: string; content_object_id: string; safety_baseline_version: number };
 type InstallationRow = { status: string; capability_object_id: string; client_type: string; adapter_version: string };
@@ -44,13 +50,19 @@ type FrozenRoleBundle = { roles: Array<{ roleVersionId: string; envelope: RoleVe
 type ArtifactRow = { id: string; content_object_id: string; artifact_type: string };
 type CompletionRequirement = { artifact_type: string; min_count: number };
 
-export type RunServiceOptions = Readonly<{ ruleBundle?: unknown; safetyBaseline?: unknown }>;
+export type RunServiceOptions = Readonly<{
+  ruleBundle?: unknown;
+  safetyBaseline?: unknown;
+  projectIndexer?: ProjectIndexer;
+}>;
 
 export class RunService {
   readonly runs: RunRepository;
   readonly events: EventRepository;
   readonly idem: IdempotencyRepository;
   readonly #validator = new ContractValidator();
+  readonly #projectIndexJobs = new Map<string, ProjectIndexJob>();
+  readonly #projectIndexer: ProjectIndexer | undefined;
   readonly #ruleBundle: unknown;
   readonly #safetyBaseline: unknown;
 
@@ -63,6 +75,7 @@ export class RunService {
     this.runs = new RunRepository(db);
     this.events = new EventRepository(db);
     this.idem = new IdempotencyRepository(db);
+    this.#projectIndexer = options.projectIndexer;
     this.#ruleBundle = options.ruleBundle ?? { schema_id: 'project-orchestrator/rule-bundle', schema_version: 1, data: {} };
     this.#safetyBaseline = options.safetyBaseline ?? { schema_id: 'project-orchestrator/safety-baseline', schema_version: 1, data: { version: 1 } };
   }
@@ -160,6 +173,7 @@ export class RunService {
     expectedStatus: 'created' | 'paused' | 'interrupted' | 'failed'; expectedLeaseEpoch: number;
     stageRunId?: string; recoveryCredential?: string; currentWorkspace?: WorkspaceState; principal: AdapterPrincipal;
   }): ClaimedLease {
+    const projectIndexes = new ProjectIndexService(this.db, this.content, this.#projectIndexer);
     const requestForHash = {
       requestId: input.requestId, runId: input.runId, mode: input.mode, expectedStatus: input.expectedStatus,
       expectedLeaseEpoch: input.expectedLeaseEpoch, stageRunId: input.stageRunId ?? null,
@@ -182,6 +196,7 @@ export class RunService {
         expectedLeaseEpoch: input.expectedLeaseEpoch,
         ...(input.recoveryCredential === undefined ? {} : { recoveryCredential: input.recoveryCredential }),
       });
+      let indexAttempt: { stageRunId: string; attemptId: string } | undefined;
       if (input.mode === 'retry') {
         if (!input.stageRunId) throw new Error('INVALID_TRANSITION: retry requires stage');
         const stage = this.requireStageForRun(input.stageRunId, input.runId);
@@ -189,7 +204,11 @@ export class RunService {
         if (stage.status === 'failed' && this.definition(input.runId, stage.stage_key).failure_policy !== 'retry_then_fail') {
           throw new Error('POLICY_VIOLATION: failure policy forbids failed-run retry');
         }
-        this.createAttempt(stage, stage.status as 'failed' | 'interrupted', {});
+        const context = projectIndexes.validateResearchStage({
+          runId: input.runId, stageRunId: stage.id, canonicalProjectPath: input.principal.canonicalProjectPath,
+        });
+        const attempt = this.createAttempt(stage, stage.status as 'failed' | 'interrupted', {});
+        if (context.applicable) indexAttempt = { stageRunId: stage.id, attemptId: attempt.attemptId };
       }
       this.events.append(input.runId, 'run_claimed', 'server', { mode: input.mode, leaseEpoch: lease.leaseEpoch });
       this.refreshFrontier(input.runId);
@@ -200,9 +219,15 @@ export class RunService {
         return { kind: 'failed' as const, failureCode: afterRefresh.failure_code ?? 'CONDITION_EVALUATION_FAILED' };
       }
       this.idem.complete(begun.id, { claimed: true, leaseEpoch: lease.leaseEpoch });
-      return { kind: 'claimed' as const, lease };
+      return { kind: 'claimed' as const, lease, indexAttempt };
     }).immediate();
     if (outcome.kind === 'failed') throw new Error(`${outcome.failureCode}: run failed while evaluating frontier`);
+    if (outcome.indexAttempt) {
+      this.queueProjectIndex({
+        service: projectIndexes, runId: input.runId, stageRunId: outcome.indexAttempt.stageRunId,
+        attemptId: outcome.indexAttempt.attemptId, canonicalProjectPath: input.principal.canonicalProjectPath,
+      });
+    }
     return outcome.lease;
   }
 
@@ -215,22 +240,89 @@ export class RunService {
   }
 
   beginStage(input: { requestId: string; proof: LeaseProof; stageRunId: string; principal: AdapterPrincipal; stageInput?: unknown }): { attemptId: string } {
-    return this.leased(input, 'begin_stage', () => {
+    const projectIndexes = new ProjectIndexService(this.db, this.content, this.#projectIndexer);
+    const attempt = this.leased(input, 'begin_stage', () => {
       const stage = this.requireStageForRun(input.stageRunId, input.proof.runId, 'ready');
-      return this.createAttempt(stage, 'ready', input.stageInput ?? {});
+      const context = projectIndexes.validateResearchStage({
+        runId: input.proof.runId, stageRunId: input.stageRunId,
+        canonicalProjectPath: input.principal.canonicalProjectPath,
+      });
+      return { ...this.createAttempt(stage, 'ready', input.stageInput ?? {}), indexProject: context.applicable };
+    });
+    if (attempt.indexProject) {
+      this.queueProjectIndex({
+        service: projectIndexes, runId: input.proof.runId, stageRunId: input.stageRunId,
+        attemptId: attempt.attemptId, canonicalProjectPath: input.principal.canonicalProjectPath,
+      });
+    }
+    return { attemptId: attempt.attemptId };
+  }
+
+  async queryProjectIndex(input: {
+    requestId: string; proof: LeaseProof; principal: AdapterPrincipal;
+    query?: string; language?: string; cursor?: number; limit?: number;
+  }): Promise<ProjectIndexQueryResult> {
+    while (true) {
+      this.leases.validate(input.proof, input.principal);
+      const pending = this.#projectIndexJobs.get(input.proof.runId);
+      if (!pending) break;
+      const error = await pending.promise;
+      if (this.#projectIndexJobs.get(input.proof.runId) !== pending) continue;
+      this.#projectIndexJobs.delete(input.proof.runId);
+      if (error !== undefined) throw error;
+    }
+    this.leases.validate(input.proof, input.principal);
+    return new ProjectIndexService(this.db, this.content).queryForRun({
+      runId: input.proof.runId,
+      ...(input.query === undefined ? {} : { query: input.query }),
+      ...(input.language === undefined ? {} : { language: input.language }),
+      ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+      ...(input.limit === undefined ? {} : { limit: input.limit }),
+    });
+  }
+
+  private queueProjectIndex(input: {
+    service: ProjectIndexService;
+    runId: string;
+    stageRunId: string;
+    attemptId: string;
+    canonicalProjectPath: string;
+  }): void {
+    const promise = input.service.ensureForResearchAttempt({
+      runId: input.runId, stageRunId: input.stageRunId, attemptId: input.attemptId,
+      canonicalProjectPath: input.canonicalProjectPath,
+    }).then(() => undefined).catch((error: unknown) => isProjectIndexAvailabilityError(error) ? undefined : error);
+    const job = Object.freeze({ attemptId: input.attemptId, promise });
+    this.#projectIndexJobs.set(input.runId, job);
+    void promise.then((error) => {
+      if (error === undefined && this.#projectIndexJobs.get(input.runId) === job) {
+        this.#projectIndexJobs.delete(input.runId);
+      }
     });
   }
 
   retryStage(input: { requestId: string; proof: LeaseProof; stageRunId: string; principal: AdapterPrincipal; stageInput?: unknown }): { attemptId: string } {
-    return this.leased(input, 'retry_stage', () => {
+    const projectIndexes = new ProjectIndexService(this.db, this.content, this.#projectIndexer);
+    const attempt = this.leased(input, 'retry_stage', () => {
       const stage = this.requireStageForRun(input.stageRunId, input.proof.runId);
       if (!['failed', 'interrupted'].includes(stage.status)) throw new Error('INVALID_TRANSITION: stage retry');
       const policy = this.definition(input.proof.runId, stage.stage_key).failure_policy;
       if (stage.status === 'failed' && policy !== 'retry_then_fail' && policy !== 'pause') {
         throw new Error('POLICY_VIOLATION: failure policy forbids retry');
       }
-      return this.createAttempt(stage, stage.status as 'failed' | 'interrupted', input.stageInput ?? {});
+      const context = projectIndexes.validateResearchStage({
+        runId: input.proof.runId, stageRunId: input.stageRunId,
+        canonicalProjectPath: input.principal.canonicalProjectPath,
+      });
+      return { ...this.createAttempt(stage, stage.status as 'failed' | 'interrupted', input.stageInput ?? {}), indexProject: context.applicable };
     });
+    if (attempt.indexProject) {
+      this.queueProjectIndex({
+        service: projectIndexes, runId: input.proof.runId, stageRunId: input.stageRunId,
+        attemptId: attempt.attemptId, canonicalProjectPath: input.principal.canonicalProjectPath,
+      });
+    }
+    return { attemptId: attempt.attemptId };
   }
 
   completeStage(input: {

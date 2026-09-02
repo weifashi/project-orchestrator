@@ -6,3 +6,4 @@ export * from './workflow.js';
 export * from './tool-contracts.js';
 export * from './events.js';
 export * from './capability.js';
+export * from './project-index.js';

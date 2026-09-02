@@ -10,6 +10,9 @@ import {
   StageOutputEnvelopeSchema,
   WorkflowVersionEnvelopeSchema,
   HostCapabilityManifestSchema,
+  QueryProjectIndexToolRequestSchema,
+  ProjectIndexEnvelopeSchema,
+  ProjectIndexQueryResultSchema,
 } from '../src/index.js';
 import { INTERNAL_TOOL_REQUEST_SCHEMAS } from '../src/internal-ipc.js';
 
@@ -136,6 +139,97 @@ describe('contract envelopes', () => {
       if (tool !== 'record_memory') expect(visible, tool).not.toContain('decision');
       expect(JSON.stringify(INTERNAL_TOOL_REQUEST_SCHEMAS[tool]), tool).toContain(`"const":"${tool}"`);
     }
+  });
+
+  it('keeps project-index queries bounded and prevents caller-controlled paths or object ids', () => {
+    const valid = { request_id: 'request', run_id: 'run', query: 'order', language: 'typescript', cursor: 0, limit: 20 };
+    expect(validator.check(QueryProjectIndexToolRequestSchema, valid)).toEqual(valid);
+    expect(() => validator.check(QueryProjectIndexToolRequestSchema, { ...valid, limit: 21 })).toThrow();
+    expect(() => validator.check(QueryProjectIndexToolRequestSchema, { ...valid, cursor: 20_001 })).toThrow();
+    expect(() => validator.check(QueryProjectIndexToolRequestSchema, { ...valid, project_path: '/tmp/project' })).toThrow();
+    expect(() => validator.check(QueryProjectIndexToolRequestSchema, { ...valid, content_object_id: 'object' })).toThrow();
+  });
+
+  it('validates immutable project-index envelopes without source bodies', () => {
+    const envelope = {
+      schema_id: 'project-orchestrator/project-index', schema_version: 1,
+      data: {
+        source_head: 'head', tree_fingerprint: 'a'.repeat(64), generated_at: '2026-09-02T00:00:00.000Z',
+        files: [{ path: 'src/index.ts', language: 'typescript', size_bytes: 12, content_sha256: 'b'.repeat(64), imports: [], symbols: [{ kind: 'function', name: 'start', line: 1 }] }],
+        skipped: { binary: 0, generated_or_dependency: 0, sensitive: 0, too_large: 0, unsupported_or_missing: 0 },
+      },
+    };
+    expect(validator.check(ProjectIndexEnvelopeSchema, envelope)).toEqual(envelope);
+    expect(() => validator.check(ProjectIndexEnvelopeSchema, {
+      ...envelope, data: { ...envelope.data, files: [{ ...envelope.data.files[0], source: 'secret' }] },
+    })).toThrow();
+  });
+
+  it('accepts bounded ready and unavailable project-index query results', () => {
+    const ready = {
+      status: 'ready',
+      project_index_object_id: '11111111-1111-4111-8111-111111111111',
+      source_head: 'a'.repeat(40),
+      tree_fingerprint: 'b'.repeat(64),
+      freshness: 'frozen',
+      bound_at: '2026-09-02T00:00:00.000Z',
+      file_count: 1,
+      changed_file_count: 1,
+      skipped_file_count: 0,
+      matched_file_count: 1,
+      cursor: 0,
+      files: [{
+        path: 'src/index.ts', language: 'typescript', imports: ['./service.js'],
+        symbols: [{ kind: 'function', name: 'start', line: 1 }], import_count: 1, symbol_count: 1,
+        path_truncated: false, details_truncated: false,
+      }],
+      next_cursor: null,
+    };
+    const unavailable = { status: 'unavailable', reason: 'PROJECT_INDEX_UNAVAILABLE' };
+
+    expect(validator.check(ProjectIndexQueryResultSchema, ready)).toEqual(ready);
+    expect(validator.check(ProjectIndexQueryResultSchema, unavailable)).toEqual(unavailable);
+    expect(validator.check(ProjectIndexQueryResultSchema, {
+      status: 'unavailable', reason: 'PROJECT_INDEX_CORRUPT',
+    })).toEqual({ status: 'unavailable', reason: 'PROJECT_INDEX_CORRUPT' });
+  });
+
+  it('rejects unknown fields and unsafe project-index query result boundaries', () => {
+    const file = {
+      path: 'src/index.ts', language: 'typescript', imports: [], symbols: [], import_count: 0, symbol_count: 0,
+      path_truncated: false, details_truncated: false,
+    };
+    const ready = {
+      status: 'ready',
+      project_index_object_id: '11111111-1111-4111-8111-111111111111',
+      source_head: 'unborn', tree_fingerprint: 'b'.repeat(64), freshness: 'frozen',
+      bound_at: '2026-09-02T00:00:00.000Z', file_count: 1, changed_file_count: 0,
+      skipped_file_count: 0, matched_file_count: 1, cursor: 0, files: [file], next_cursor: null,
+    };
+
+    expect(() => validator.check(ProjectIndexQueryResultSchema, { ...ready, secret: 'leak' })).toThrow(/additionalProperties/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, {
+      ...ready, files: [{ ...file, source: 'secret' }],
+    })).toThrow(/additionalProperties/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, {
+      ...ready, files: Array.from({ length: 21 }, () => file),
+    })).toThrow(/maxItems/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, { ...ready, cursor: -1 })).toThrow(/minimum/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, { ...ready, next_cursor: 20_001 })).toThrow(/maximum/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, { ...ready, project_index_object_id: 'object' })).toThrow(/format/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, { ...ready, tree_fingerprint: 'ABC' })).toThrow(/pattern/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, {
+      ...ready, files: [{ ...file, path: 'x'.repeat(1025) }],
+    })).toThrow(/maxLength/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, {
+      ...ready, files: [{ ...file, imports: ['x'.repeat(513)] }],
+    })).toThrow(/maxLength/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, {
+      ...ready, files: [{ ...file, symbols: [{ kind: 'function', name: 'x'.repeat(257), line: 1 }] }],
+    })).toThrow(/maxLength/);
+    expect(() => validator.check(ProjectIndexQueryResultSchema, {
+      status: 'unavailable', reason: 'SOMETHING_ELSE',
+    })).toThrow(/const/);
   });
 
   it('rejects a failed output submitted through complete-stage', () => {

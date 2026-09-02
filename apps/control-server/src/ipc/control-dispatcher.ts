@@ -109,6 +109,16 @@ export function createControlDispatcher(services: RuntimeServices): {
           ...(payload['stage_input'] === undefined ? {} : { stageInput: payload['stage_input'] }),
         });
       }
+      case 'query_project_index': {
+        const proof = leaseProof(request, payload);
+        return services.runs.queryProjectIndex({
+          requestId, proof, principal,
+          ...(payload['query'] === undefined ? {} : { query: requiredString(payload, 'query') }),
+          ...(payload['language'] === undefined ? {} : { language: requiredString(payload, 'language') }),
+          ...(payload['cursor'] === undefined ? {} : { cursor: Number(payload['cursor']) }),
+          ...(payload['limit'] === undefined ? {} : { limit: Number(payload['limit']) }),
+        });
+      }
       case 'complete_stage': {
         const proof = leaseProof(request, payload);
         return services.runs.completeStage({

@@ -23,6 +23,7 @@ const descriptions: Record<AgentToolName, string> = {
   claim_run: 'Claim or recover a Run for this authenticated installation.',
   heartbeat_run: 'Extend the current Run lease.',
   begin_stage: 'Begin one ready stage attempt.',
+  query_project_index: 'Query the immutable lightweight source index frozen when this Run entered Research.',
   complete_stage: 'Submit a successful structured stage result.',
   fail_stage: 'Freeze a failed stage attempt with evidence.',
   retry_stage: 'Retry a failed or interrupted stage inside a running Run.',

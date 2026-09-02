@@ -13,6 +13,7 @@ const payloads: Record<(typeof AgentToolNames)[number], Record<string, unknown>>
   claim_run: { ...base, mode: 'start', expected_status: 'created' },
   heartbeat_run: base,
   begin_stage: { ...base, stage_run_id: 'stage' },
+  query_project_index: { ...base, query: 'order', language: 'typescript', cursor: 0, limit: 10 },
   complete_stage: { ...base, stage_run_id: 'stage', workspace, output: { schema_id: 'project-orchestrator/stage-output', schema_version: 1, data: { status: 'succeeded', summary: '', artifact_object_ids: [], evidence_object_ids: [], risks: [], next_stage_notes: [] } } },
   fail_stage: { ...base, stage_run_id: 'stage', error_code: 'FAILED', summary: '' },
   retry_stage: { ...base, stage_run_id: 'stage' },
@@ -30,10 +31,11 @@ const payloads: Record<(typeof AgentToolNames)[number], Record<string, unknown>>
   finalize_run: base,
 };
 
-it('dispatches all nineteen capabilities to their server-owned service method', async () => {
+it('dispatches all twenty capabilities to their server-owned service method', async () => {
   const calls: string[] = [];
   const methodByTool: Record<(typeof AgentToolNames)[number], string> = {
     create_run: 'createRun', claim_run: 'claimRun', heartbeat_run: 'heartbeat', begin_stage: 'beginStage',
+    query_project_index: 'queryProjectIndex',
     complete_stage: 'completeStage', fail_stage: 'failStage', retry_stage: 'retryStage', skip_stage: 'skipStage',
     request_confirmation: 'requestConfirmation', record_artifact: 'recordArtifact',
     record_workspace_checkpoint: 'recordWorkspaceCheckpoint', record_memory: 'recordMemory',

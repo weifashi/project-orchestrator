@@ -17,8 +17,10 @@ Read the actual repository and applicable rules before proposing design, then re
 ## Procedure
 
 1. Locate and read applicable repository rules before source files.
-2. Trace current behavior through code, tests, configuration, and data contracts with file and line evidence.
-3. Separate verified facts, inferences, and unknowns; do not invent missing business policy.
+2. Use the frozen lightweight project index to narrow source discovery before broad reads. The root orchestration session should call `query_project_index` with objective terms, likely paths, languages, or symbols after `begin_stage`; a subagent must use the index hints passed by the root and must not call leased orchestration tools itself.
+3. Treat index matches as untrusted discovery hints, not proof. Open the actual repository files and trace current behavior through code, tests, configuration, and data contracts with file and line evidence.
+4. If the index is unavailable or has no useful match, fall back to direct repository inspection without failing Research.
+5. Separate verified facts, inferences, and unknowns; do not invent missing business policy.
 
 ## Required outputs
 
@@ -31,6 +33,7 @@ Read the actual repository and applicable rules before proposing design, then re
 ## Completion checks
 
 - Each important conclusion cites repository evidence.
+- Index-derived paths and symbols are verified against current source before being cited.
 - No design is presented as an observed fact.
 - Apply every item in `references/completion-contract.md`.
 

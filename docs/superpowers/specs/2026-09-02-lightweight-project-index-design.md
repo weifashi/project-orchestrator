@@ -34,8 +34,9 @@ watchers, or an automatically committed JSON file.
 ## Trigger and lifecycle
 
 ```text
-begin Research stage
+begin or retry Research stage
         |
+        +-- validate frozen role, ownership, and canonical project path
         +-- create the stage attempt atomically
         |
         +-- Run already has an index binding? -- yes --> reuse it
@@ -50,10 +51,24 @@ begin Research stage
         +-- continue even if indexing is unavailable
 ```
 
-Indexing happens after the stage transition transaction, so filesystem scanning
-does not hold a SQLite write lock. An indexing failure never rolls back or fails
-the Research attempt. A later query returns an explicit unavailable status and
-the Research Skill falls back to direct repository inspection.
+Indexing uses asynchronous Git and file-descriptor reads after the stage
+transition transaction, yielding between file batches, so filesystem scanning
+does not hold a SQLite write lock or monopolize the control-server event loop.
+The scanner rechecks every observed source, binary, sensitive-content,
+oversized, symlink, and missing-file state, plus Git HEAD and the tracked
+manifest, before accepting a result. A concurrent replacement, classification
+change, add/remove, or commit therefore produces an unavailable result instead
+of a mixed-time snapshot. The CAS file write and verification also finish before
+the short binding transaction. If binding loses a race, the globally published,
+valid content-addressed object is retained for safe deduplication rather than
+being synchronously deleted while another process may already hold its id.
+Expected Git/index availability failures never roll back or fail the Research
+attempt. Policy, ownership, frozen-role, and project-path mismatches fail closed
+before the attempt is created. A later query returns an explicit unavailable
+status and the Research Skill falls back to direct repository inspection.
+Research stage start/retry keeps its existing synchronous API and queues the
+scan after the transition. A query waits for the newest pending job for that Run;
+superseded jobs cannot erase or surface errors over a replacement retry job.
 
 Retries reuse the Run's first successful binding. Existing Runs without a
 binding are unchanged unless they enter Research after this feature is installed.
@@ -106,15 +121,15 @@ or default values.
 | `id` | immutable identifier |
 | `project_id` | owning project |
 | `source_head` | Git HEAD observed during the scan |
-| `tree_fingerprint` | hash of sorted indexed path/content-hash pairs |
+| `tree_fingerprint` | hash of sorted indexed path/content-hash pairs plus stable omitted-path/reason markers |
 | `content_object_id` | immutable CAS envelope |
 | `file_count` | indexed file count |
-| `changed_file_count` | added, removed, or content-changed paths versus the prior index |
 | `skipped_file_count` | files omitted by safety and size rules |
 | `created_at` | creation time |
 
-`(project_id, tree_fingerprint)` is unique, allowing identical trees to reuse an
-existing index object.
+`(project_id, source_head, tree_fingerprint)` is unique, allowing identical
+working trees at the same commit to reuse an existing index object without
+misreporting a later commit as the index source.
 
 ### `run_project_indexes`
 
@@ -124,6 +139,7 @@ existing index object.
 | `project_index_id` | referenced project index |
 | `stage_run_id` | Research stage that caused the binding |
 | `stage_attempt_id` | Research attempt that caused the binding |
+| `changed_file_count` | added, removed, or content-changed paths versus the immediately prior project binding |
 | `bound_at` | binding time |
 
 Insert triggers verify that the Run, project, stage, and attempt belong together.
@@ -140,9 +156,12 @@ Both tables are immutable after insertion.
 - `limit`: 1 through 20.
 
 The server returns the frozen index object id, freshness metadata, counts, a
-bounded page of matching file records, and the next cursor. Result construction
-stops before the MCP response limit rather than relying on arbitrary string
-truncation. A Run without a successful binding returns `status: unavailable`.
+schema-validated bounded page of matching file records, and the next cursor.
+Long path/import/symbol projections carry explicit truncation flags and are
+dynamically reduced before the UTF-8 MCP response limit; a matching file is
+never consumed and silently dropped. A path whose JSON escaping alone exceeds
+the budget is represented by `[oversized-path]`, guaranteeing that pagination
+still advances. A Run without a successful binding returns `status: unavailable`.
 
 The tool does not accept a project path or content object id from the model. The
 authenticated Run determines both.
@@ -157,10 +176,13 @@ authenticated Run determines both.
 - Skip `.env*`, private-key, certificate, and credential-container files.
 - Skip files above 1 MiB and files containing a NUL byte.
 - Stop with an unavailable result when the repository exceeds 20,000 tracked
-  paths or 128 MiB of eligible source content.
+  paths, 128 MiB of eligible source content, or 8 MiB of index metadata.
 - Execute Git commands without a shell, with bounded output and a timeout.
 - Treat index fields and repository content as untrusted evidence, never as
   executable instructions.
+- Compute each Run's `changed_file_count` against the latest committed project
+  binding immediately before insertion, and retry the short binding transaction
+  if that baseline changes concurrently.
 
 ## Business rules preserved
 
@@ -179,7 +201,9 @@ authenticated Run determines both.
 2. The first Research attempt for a Run creates and binds one index without
    holding the stage transition transaction during the scan.
 3. A later Research retry or duplicate request reuses the same Run binding.
-4. A new Run on an unchanged tree reuses the existing project index.
+4. A new Run on the same Git HEAD and unchanged tree reuses the existing project
+   index; a new HEAD receives a distinct source-accurate index even if its files
+   are unchanged.
 5. A new Run after one source file changes reparses that file, reuses unchanged
    records, and records the correct changed-file count.
 6. Existing Runs keep their original index object after the repository changes.
@@ -189,5 +213,7 @@ authenticated Run determines both.
    authenticated Run.
 9. Git/index failures do not fail the Research stage and produce an explicit
    unavailable query response.
-10. Build, typecheck, lint, unit, integration, generated-plugin, Skill, and
+10. A Research retry attempts indexing again when the Run has no successful
+    binding, but never replaces an existing binding.
+11. Build, typecheck, lint, unit, integration, generated-plugin, Skill, and
     relevant end-to-end checks pass before delivery.

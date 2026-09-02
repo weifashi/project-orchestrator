@@ -2,7 +2,7 @@ import { Type, type Static, type TSchema } from '@sinclair/typebox';
 import { SucceededStageOutputEnvelopeSchema } from './run.js';
 
 export const AgentToolNames = [
-  'create_run', 'claim_run', 'heartbeat_run', 'begin_stage', 'complete_stage',
+  'create_run', 'claim_run', 'heartbeat_run', 'begin_stage', 'query_project_index', 'complete_stage',
   'fail_stage', 'retry_stage', 'skip_stage', 'request_confirmation',
   'record_artifact', 'record_workspace_checkpoint', 'record_memory',
   'append_agent_note', 'prepare_side_effect', 'execute_side_effect',
@@ -48,6 +48,13 @@ export const ClaimRunToolRequestSchema = closed({
 });
 export const HeartbeatRunToolRequestSchema = closed({ ...RunRequest() });
 export const BeginStageToolRequestSchema = closed({ ...StageRequest(), stage_input: Type.Optional(Type.Unknown()) });
+export const QueryProjectIndexToolRequestSchema = closed({
+  ...RunRequest(),
+  query: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
+  language: Type.Optional(Type.String({ minLength: 1, maxLength: 32 })),
+  cursor: Type.Optional(Type.Integer({ minimum: 0, maximum: 20_000 })),
+  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+});
 export const CompleteStageToolRequestSchema = closed({
   ...StageRequest(), output: SucceededStageOutputEnvelopeSchema,
   workspace: WorkspaceStateSchema,
@@ -102,6 +109,7 @@ export const MODEL_VISIBLE_TOOL_SCHEMAS = {
   claim_run: ClaimRunToolRequestSchema,
   heartbeat_run: HeartbeatRunToolRequestSchema,
   begin_stage: BeginStageToolRequestSchema,
+  query_project_index: QueryProjectIndexToolRequestSchema,
   complete_stage: CompleteStageToolRequestSchema,
   fail_stage: FailStageToolRequestSchema,
   retry_stage: RetryStageToolRequestSchema,
