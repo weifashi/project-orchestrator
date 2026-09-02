@@ -119,4 +119,4 @@
 - [x] Run `pnpm check:generated`, `pnpm validate:skills`, and `pnpm validate:plugins`.
 - [x] Run the relevant control-server/MCP end-to-end or contract tests that cover tool exposure and process equivalence.
 - [x] Inspect `git diff` line by line for unrelated changes, secrets, generated drift, schema mistakes, and original-business-rule regressions.
-- [ ] Commit the implementation on `main`, push `main` to GitHub, and report changed files, table fields, business-rule impact, test evidence, and rollback point.
+- [x] Commit the implementation on `main`, push `main` to GitHub, and report changed files, table fields, business-rule impact, test evidence, and rollback point.
