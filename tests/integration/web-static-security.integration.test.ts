@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -26,6 +26,12 @@ it("serves account-first bootstrap and keeps static pages behind a secure opaque
   const registration = await app.inject({ method: "GET", url: "/bootstrap", headers: { host } });
   expect(registration.statusCode).toBe(200);
   expect(registration.body).toContain("创建管理员账号");
+  // 登录页是服务端内联渲染的，不走 SPA 的 index.html；两边的 favicon 各写一份，
+  // 这里交叉校验防止只改一边导致登录前后标签页图标不一致。
+  const spaIndex = readFileSync(new URL("../../apps/web-console/index.html", import.meta.url), "utf8");
+  const spaFavicon = /href="(data:image\/svg\+xml,[^"]+)"/.exec(spaIndex)?.[1];
+  expect(spaFavicon).toBeTruthy();
+  expect(registration.body).toContain(`<link rel="icon" type="image/svg+xml" href="${spaFavicon}">`);
   expect(registration.body).not.toContain("Web token");
   expect(registration.body).not.toContain('name="password" type="password" autocomplete="new-password" required minlength');
   expect(registration.body).not.toContain('name="confirm_password" type="password" autocomplete="new-password" required minlength');
