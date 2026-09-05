@@ -91,14 +91,18 @@ async function recordScenario(client: Anthropic, rubric: string, currentRubricHa
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const client = new Anthropic();
   // 凭据由 SDK 解析（ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / `ant auth login` 配置）。
-  // 先做一次最便宜的调用把鉴权失败暴露在最前面，而不是等到第一条场景跑到一半。
+  // 没有任何凭据时 SDK 在构造阶段就会抛；有凭据但无效时要到第一次请求才知道。
+  // 两种情况都在跑第一条场景之前暴露出来，并换成指向解决办法的提示。
+  const noCredentials = 'no usable Anthropic credentials: set ANTHROPIC_API_KEY or run `ant auth login`';
+  let client: Anthropic;
   try {
+    client = new Anthropic();
     await client.models.retrieve(EXECUTOR_MODEL);
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
-      throw new Error('no usable Anthropic credentials: set ANTHROPIC_API_KEY or run `ant auth login`');
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof Anthropic.AuthenticationError || /authentication|api ?key|auth ?token/i.test(message)) {
+      throw new Error(`${noCredentials}\n(${message})`);
     }
     throw error;
   }
