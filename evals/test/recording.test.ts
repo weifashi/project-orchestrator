@@ -23,7 +23,8 @@ describe('recording', () => {
 
   it('rejects a missing dimension and a bad hash', () => {
     const { scores, ...rest } = rec();
-    const { boundary: _omit, ...partial } = scores;
+    const { boundary, ...partial } = scores;
+    void boundary;
     expect(() => parseRecording({ ...rest, scores: partial })).toThrow(/boundary/);
     expect(() => parseRecording({ ...rec(), skill_hash: 'short' })).toThrow(/skill_hash/);
   });

@@ -44,7 +44,8 @@ describe('checkHardGates', () => {
   });
 
   it('fails schema when a required field is missing', () => {
-    const { summary: _omit, ...data } = goodEnvelope.data;
+    const { summary, ...data } = goodEnvelope.data;
+    void summary;
     const gates = checkHardGates(testing, scenario, { ...goodEnvelope, data }, '');
     expect(gates.schema_valid).toBe(false);
     expect(gates.failures.join('\n')).toMatch(/summary/);

@@ -15,7 +15,8 @@ import { rubricPath } from './paths.js';
 const EXECUTOR_MODEL = process.env['PO_EVAL_EXECUTOR_MODEL'] ?? 'claude-opus-5';
 const JUDGE_MODEL = process.env['PO_EVAL_JUDGE_MODEL'] ?? 'claude-opus-5';
 
-type Args = { role?: string; scenario?: string; accept: boolean };
+// argv[++index] 是 string | undefined；exactOptionalPropertyTypes 下可选属性必须显式允许 undefined。
+type Args = { role?: string | undefined; scenario?: string | undefined; accept: boolean };
 
 function parseArgs(argv: string[]): Args {
   const args: Args = { accept: false };
