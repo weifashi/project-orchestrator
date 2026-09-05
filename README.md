@@ -60,3 +60,12 @@ Linux upgrades create a consistent SQLite/CAS backup before migration and restor
 - 在「任务记录 › 任务详情」下载当前 Run 的 JSON 证据包或 Markdown 审计报告。
 - 在「项目记忆」按当前项目筛选下载 JSON 或 Markdown；未筛选时导出全部可见项目记忆。
 - SQLite 与 CAS 仍是唯一事实源。导出不会创建数据库记录、改变 Run 状态或内嵌产物正文；JSON 使用带版本号的稳定信封，Markdown 标签跟随当前中英文界面，保存的业务正文保持原样。
+
+## Role evals
+
+Ten built-in role prompts live in `skills/<role>/`. Every change to them must pass the eval gate:
+
+- `pnpm evals:check` — offline, deterministic, runs inside `pnpm test`. Verifies each role has at least two scenarios and a committed recording whose `skill_hash` matches the current files, that hard gates hold, and that scores have not regressed against `evals/baseline.json`.
+- `pnpm evals:record [--role <slug>] [--scenario <role>/<name>] [--accept]` — calls the model to re-run scenarios and re-score them. Needs Anthropic credentials (`ANTHROPIC_API_KEY` or `ant auth login`). `--accept` rewrites the baseline; commit `evals/recordings/` and `evals/baseline.json` together with the prompt change.
+
+Editing a prompt without re-recording fails the gate on purpose.
