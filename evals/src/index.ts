@@ -4,3 +4,6 @@ export * from './hash.js';
 export * from './scenario.js';
 export * from './recording.js';
 export * from './baseline.js';
+export * from './gate.js';
+export * from './judge-schema.js';
+export * from './prompts.js';
