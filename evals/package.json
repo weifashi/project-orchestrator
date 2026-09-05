@@ -1,0 +1,17 @@
+{
+  "name": "@project-orchestrator/evals",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
+    "@project-orchestrator/contracts": "workspace:*",
+    "yaml": "^2.8.1"
+  }
+}

@@ -43,4 +43,12 @@ export default defineWorkspace([
       testTimeout: 30_000,
     },
   },
+  {
+    resolve: { alias: aliases },
+    test: {
+      name: 'evals',
+      include: ['evals/test/**/*.test.ts'],
+      maxWorkers: 2,
+    },
+  },
 ]);

@@ -78,7 +78,7 @@ must_not_claim:
 三道硬门不用模型、确定性，任一失败即红：
 1. `output_envelope` 通过该角色 `references/output-schema.json` 校验（用仓库已有的 `ContractValidator`）。
 2. `references/completion-contract.md` 列出的必需字段/产物在输出中齐全。
-3. `SKILL.md`「Forbidden claims」段落与场景 `must_not_claim` 里的表述在输出中缺席（大小写不敏感的子串匹配）。
+3. 场景 `must_not_claim` 列出的表述在输出中缺席（大小写不敏感的子串匹配）。`SKILL.md`「Forbidden claims and actions」段是行为指令，不做逐字匹配，作为 boundary 维度的评判依据交给模型。
 
 执行阶段**不用**结构化输出约束角色的回复：schema 合法性本身是被测属性，约束了就测不到。评判阶段则用 `output_config.format` 按固定 JSON schema 约束打分结果，不解析自由文本。
 

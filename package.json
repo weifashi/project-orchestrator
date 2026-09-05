@@ -13,7 +13,7 @@
     "typecheck": "pnpm -r build && pnpm -r typecheck",
     "lint": "eslint .",
     "pretest": "pnpm -r build",
-    "test": "vitest run --project unit --project web-unit",
+    "test": "vitest run --project unit --project web-unit --project evals",
     "pretest:integration": "pnpm -r build",
     "test:integration": "vitest run --project integration",
     "validate:skills": "node scripts/validate-skills.mjs",
@@ -22,7 +22,10 @@
     "test:e2e": "playwright test",
     "diff-check": "node scripts/web-diff-check.mjs",
     "release": "node scripts/build-release.mjs",
-    "test:install": "bash tests/install/linux-smoke.sh && bash tests/install/release-layout.sh"
+    "test:install": "bash tests/install/linux-smoke.sh && bash tests/install/release-layout.sh",
+    "evals:check": "vitest run --project evals",
+    "preevals:record": "pnpm --filter @project-orchestrator/evals build",
+    "evals:record": "node evals/dist/record.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

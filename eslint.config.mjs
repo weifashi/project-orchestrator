@@ -14,10 +14,10 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts', 'apps/*/src/**/*.tsx'],
+    files: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.ts', 'apps/*/src/**/*.tsx', 'evals/src/**/*.ts'],
     languageOptions: {
       parserOptions: {
-        project: ['./packages/*/tsconfig.json', './apps/*/tsconfig.json'],
+        project: ['./packages/*/tsconfig.json', './apps/*/tsconfig.json', './evals/tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
