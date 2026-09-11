@@ -174,6 +174,8 @@ export async function mockApi(page: Page, options: { runObjective?: string } = {
       });
     if (path === "/api/read/workflow-drafts/workflow-1")
       return route.fulfill({ json: workflow });
+    if (path.startsWith("/api/read/workflow-versions/"))
+      return route.fulfill({ json: workflow });
     if (path === "/api/config/workflow-drafts/workflow-1")
       return route.fulfill({ json: { revision: 2 } });
     if (path === "/api/config/workflows/workflow-1/publish")
